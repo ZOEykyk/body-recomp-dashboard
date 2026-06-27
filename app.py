@@ -199,13 +199,13 @@ def final_kcal(auto_kcal: int, manual_kcal: int) -> int:
 
 def rank_steps(steps: Any) -> str:
     value = parse_number(steps, default=0)
-    if value >= 10000:
+    if value >= 12000:
         return "S"
-    if value >= 8000:
+    if value >= 10000:
         return "A"
-    if value >= 6000:
+    if value >= 8000:
         return "B"
-    if value >= 4000:
+    if value >= 6000:
         return "C"
     return "D"
 
@@ -475,7 +475,7 @@ st.header("ChatGPTログ貼り付け")
 st.caption("1日分のJSONを貼り付けると、records.csvに1行追加します。JSON配列なら複数日分も追加できます。")
 chatgpt_log = st.text_area(
     "JSON形式のログ",
-    placeholder='{"日付":"2026-06-28","体重":85.2,"歩数":8200,"歩数ランク":"A","睡眠時間":7.5,"朝":"プロテイン","昼":"うどん","夜":"鶏むね肉","間食":"オイコス","仕事中のドリンク":"コーヒー","推定摂取カロリー":1850,"筋トレ有無":true,"筋トレ内容":"ベンチプレス","体調":"良い","飲酒":"なし","今日の採点":85,"コメント":"よくできた"}',
+    placeholder='{"日付":"2026-06-28","体重":85.2,"歩数":8200,"歩数ランク":"B","睡眠時間":7.5,"朝":"プロテイン","昼":"うどん","夜":"鶏むね肉","間食":"オイコス","仕事中のドリンク":"コーヒー","推定摂取カロリー":1850,"筋トレ有無":true,"筋トレ内容":"ベンチプレス","体調":"良い","飲酒":"なし","今日の採点":85,"コメント":"よくできた"}',
     height=220,
 )
 
