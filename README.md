@@ -1,2 +1,81 @@
 # body-recomp-dashboard
-筋トレと減量管理アプリ
+
+ボディリコンプ管理システム。食事、体重、歩数、睡眠、筋トレ、体調を記録し、減量と筋力維持の進捗を可視化します。
+
+## Streamlit Cloudでrecords.csvを永続化する
+
+Streamlit Cloudのファイルシステムは永続化されないため、`records.csv` はGitHub Contents APIでリポジトリ上に保存します。
+
+Streamlit CloudのSecretsに以下を設定してください。
+
+```toml
+GITHUB_TOKEN = "GitHub fine-grained personal access token"
+GITHUB_REPOSITORY = "ZOEykyk/body-recomp-dashboard"
+RECORDS_CSV_BRANCH = "main"
+RECORDS_CSV_PATH = "records.csv"
+```
+
+`GITHUB_TOKEN` には対象リポジトリのContents read/write権限を付けてください。Secretsが未設定の場合は、ローカルの `records.csv` に保存します。
+
+## 歩数ランク
+
+- S: 12,000歩以上
+- A: 10,000歩以上
+- B: 8,000歩以上
+- C: 6,000歩以上
+- D: 6,000歩未満
+
+## ChatGPT JSONログ形式
+
+アプリの「ChatGPTログ貼り付け」欄には、1日分のJSONオブジェクト、または複数日分のJSON配列を貼り付けます。同じ日付の記録が既にある場合は上書きし、なければ追加します。
+
+```json
+{
+  "日付": "2026-06-28",
+  "体重": 85.2,
+  "歩数": 8200,
+  "歩数ランク": "B",
+  "睡眠時間": 7.5,
+  "朝": "プロテイン、トマトジュース",
+  "昼": "うどん、とり天",
+  "夜": "鶏むね肉、白米、サラダ",
+  "間食": "オイコス",
+  "仕事中のドリンク": "コーヒー、カフェラテ",
+  "推定摂取カロリー": 1850,
+  "筋トレ有無": true,
+  "筋トレ内容": "ベンチプレス 90kg 5,6,6,4 / サイドレイズ 12kg 15回",
+  "体調": "良い",
+  "飲酒": "なし",
+  "今日の採点": 85,
+  "コメント": "歩数と食事は良好。明日は睡眠を増やす。"
+}
+```
+
+複数日分の場合:
+
+```json
+[
+  {
+    "日付": "2026-06-28",
+    "体重": 85.2,
+    "歩数": 8200,
+    "睡眠時間": 7.5,
+    "朝": "プロテイン",
+    "昼": "うどん",
+    "夜": "鶏むね肉",
+    "間食": "オイコス",
+    "仕事中のドリンク": "コーヒー",
+    "推定摂取カロリー": 1850,
+    "筋トレ有無": true,
+    "筋トレ内容": "ベンチプレス 90kg 5,6,6,4",
+    "体調": "良い",
+    "飲酒": "なし",
+    "今日の採点": 85,
+    "コメント": "よくできた"
+  }
+]
+```
+
+英語キーも一部受け付けます。例: `date`, `weight`, `steps`, `sleep_hours`, `breakfast`, `lunch`, `dinner`, `snacks`, `work_drinks`, `calories`, `trained`, `workout_detail`, `condition`, `alcohol`, `score`, `comment`。
+
+日付や数値が読み取れない場合は、アプリ上に「何件目のどの項目が読み取れなかったか」を表示します。

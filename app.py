@@ -1,14 +1,21 @@
 import datetime as dt
+import base64
 import json
+import os
 import re
+from io import StringIO
 from pathlib import Path
 from typing import Any
+from urllib import error, request
 
 import pandas as pd
 import streamlit as st
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 82.0
+DEFAULT_GITHUB_REPOSITORY = "ZOEykyk/body-recomp-dashboard"
+DEFAULT_RECORDS_BRANCH = "main"
+STEP_RANK_ORDER = ["S", "A", "B", "C", "D"]
 
 REQUIRED_COLUMNS = [
     "日付",
@@ -164,10 +171,107 @@ JSON_KEY_ALIASES = {
     "コメント": ["コメント", "comment", "memo", "メモ"],
 }
 
+CONDITION_SCORES = {
+    "最高": 5,
+    "とても良い": 5,
+    "良い": 4,
+    "普通": 3,
+    "やや悪い": 2,
+    "悪い": 1,
+    "不調": 1,
+}
 
-st.set_page_config(page_title="筋トレ・減量管理アプリ", page_icon="🏋️", layout="wide")
-st.title("🏋️ 筋トレ・減量管理アプリ")
+
+st.set_page_config(page_title="ボディリコンプ管理システム", page_icon="🏋️", layout="wide")
+st.title("🏋️ ボディリコンプ管理システム")
 st.caption("食事・体重・歩数・筋トレをCSVに保存し、減量ペースを分析します。")
+
+
+class RecordValidationError(ValueError):
+    def __init__(self, errors: list[str]):
+        self.errors = errors
+        super().__init__("\n".join(errors))
+
+
+def get_config_value(name: str, default: str = "") -> str:
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        value = ""
+    return str(value or os.environ.get(name, default) or "").strip()
+
+
+def github_storage_config() -> dict[str, str]:
+    return {
+        "token": get_config_value("GITHUB_TOKEN"),
+        "repository": get_config_value("GITHUB_REPOSITORY", DEFAULT_GITHUB_REPOSITORY),
+        "branch": get_config_value("RECORDS_CSV_BRANCH", DEFAULT_RECORDS_BRANCH),
+        "path": get_config_value("RECORDS_CSV_PATH", DATA_FILE),
+    }
+
+
+def github_storage_enabled() -> bool:
+    config = github_storage_config()
+    return bool(config["token"] and config["repository"])
+
+
+def github_request(method: str, url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = github_storage_config()
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {config['token']}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+            "User-Agent": "body-recomp-dashboard",
+        },
+    )
+
+    try:
+        with request.urlopen(req, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        if exc.code == 404:
+            raise FileNotFoundError(detail) from exc
+        raise RuntimeError(f"GitHub API error {exc.code}: {detail}") from exc
+    except error.URLError as exc:
+        raise RuntimeError(f"GitHub APIに接続できませんでした: {exc.reason}") from exc
+
+
+def github_file_url() -> str:
+    config = github_storage_config()
+    path = config["path"].replace("\\", "/")
+    return f"https://api.github.com/repos/{config['repository']}/contents/{path}"
+
+
+def read_github_records() -> tuple[str | None, str | None]:
+    config = github_storage_config()
+    url = f"{github_file_url()}?ref={config['branch']}"
+    try:
+        response = github_request("GET", url)
+    except FileNotFoundError:
+        return None, None
+
+    content = base64.b64decode(response["content"]).decode("utf-8-sig")
+    return content, response["sha"]
+
+
+def write_github_records(csv_text: str) -> None:
+    config = github_storage_config()
+    _, sha = read_github_records()
+    payload: dict[str, Any] = {
+        "message": "Update records.csv from Streamlit app",
+        "content": base64.b64encode(csv_text.encode("utf-8-sig")).decode("ascii"),
+        "branch": config["branch"],
+    }
+    if sha:
+        payload["sha"] = sha
+    github_request("PUT", github_file_url(), payload)
 
 
 def estimate_calories(text: str, meal_type: str = "") -> int:
@@ -224,6 +328,16 @@ def parse_number(value: Any, default: float = 0) -> float:
     return float(match.group(0))
 
 
+def parse_number_for_record(field: str, value: Any, errors: list[str], default: float = 0) -> float:
+    if value is None or value == "":
+        return default
+    parsed = parse_number(value, default=None)
+    if parsed is None:
+        errors.append(f"{field}: 数値として読み取れませんでした（入力値: {value}）")
+        return default
+    return parsed
+
+
 def normalize_yes_no(value: Any) -> str:
     if isinstance(value, bool):
         return "あり" if value else "なし"
@@ -244,7 +358,7 @@ def normalize_yes_no(value: Any) -> str:
 
 def normalize_date(value: Any) -> pd.Timestamp:
     if value is None or value == "":
-        return pd.to_datetime(dt.date.today())
+        raise ValueError("日付がありません")
     parsed = pd.to_datetime(value, errors="coerce")
     if pd.isna(parsed):
         raise ValueError(f"日付を読み取れませんでした: {value}")
@@ -271,21 +385,26 @@ def get_nested_value(data: dict[str, Any], keys: list[str]) -> Any:
     return None
 
 
-def normalize_record(raw: dict[str, Any]) -> dict[str, Any]:
+def normalize_record(raw: dict[str, Any], record_number: int = 1) -> dict[str, Any]:
     row = {column: "" for column in COLUMNS}
+    errors: list[str] = []
 
     for column, aliases in JSON_KEY_ALIASES.items():
         value = get_nested_value(raw, aliases)
         if value is not None:
             row[column] = value
 
-    row["日付"] = normalize_date(row["日付"])
-    row["体重"] = parse_number(row["体重"])
-    row["歩数"] = int(parse_number(row["歩数"]))
-    row["歩数ランク"] = str(row["歩数ランク"] or rank_steps(row["歩数"]))
-    row["睡眠時間"] = parse_number(row["睡眠時間"])
+    try:
+        row["日付"] = normalize_date(row["日付"])
+    except ValueError as exc:
+        errors.append(f"日付: {exc}")
+
+    row["体重"] = parse_number_for_record("体重", row["体重"], errors)
+    row["歩数"] = int(parse_number_for_record("歩数", row["歩数"], errors))
+    row["歩数ランク"] = rank_steps(row["歩数"])
+    row["睡眠時間"] = parse_number_for_record("睡眠時間", row["睡眠時間"], errors)
     row["筋トレ有無"] = normalize_yes_no(row["筋トレ有無"])
-    row["今日の採点"] = int(parse_number(row["今日の採点"]))
+    row["今日の採点"] = int(parse_number_for_record("今日の採点", row["今日の採点"], errors))
 
     for column in ["朝", "昼", "夜", "間食", "仕事中のドリンク", "筋トレ内容", "体調", "飲酒", "コメント"]:
         row[column] = "" if row[column] is None else str(row[column])
@@ -296,7 +415,7 @@ def normalize_record(raw: dict[str, Any]) -> dict[str, Any]:
     row["間食カロリー(kcal)"] = int(estimate_calories(row["間食"], "間食"))
     row["ドリンクカロリー(kcal)"] = int(estimate_calories(row["仕事中のドリンク"], "仕事中のドリンク"))
 
-    estimated = parse_number(row["推定摂取カロリー"])
+    estimated = parse_number_for_record("推定摂取カロリー", row["推定摂取カロリー"], errors)
     if estimated <= 0:
         estimated = sum(
             int(row[column])
@@ -309,6 +428,9 @@ def normalize_record(raw: dict[str, Any]) -> dict[str, Any]:
             ]
         )
     row["推定摂取カロリー"] = int(estimated)
+
+    if errors:
+        raise RecordValidationError([f"{record_number}件目の{message}" for message in errors])
 
     return row
 
@@ -327,7 +449,14 @@ def normalize_columns(data: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_data() -> pd.DataFrame:
-    if Path(DATA_FILE).exists():
+    if github_storage_enabled():
+        try:
+            csv_text, _ = read_github_records()
+            loaded = pd.read_csv(StringIO(csv_text)) if csv_text else pd.DataFrame(columns=COLUMNS)
+        except Exception as exc:
+            st.error(f"GitHub上のrecords.csvを読み込めませんでした: {exc}")
+            loaded = pd.DataFrame(columns=COLUMNS)
+    elif Path(DATA_FILE).exists():
         loaded = pd.read_csv(DATA_FILE)
     else:
         loaded = pd.DataFrame(columns=COLUMNS)
@@ -342,18 +471,41 @@ def load_data() -> pd.DataFrame:
         loaded["歩数"] = loaded["歩数"].astype(int)
         loaded["推定摂取カロリー"] = loaded["推定摂取カロリー"].astype(int)
         loaded["今日の採点"] = loaded["今日の採点"].astype(int)
-        loaded["歩数ランク"] = loaded.apply(
-            lambda row: row["歩数ランク"] if str(row["歩数ランク"]).strip() else rank_steps(row["歩数"]),
-            axis=1,
-        )
+        loaded["歩数ランク"] = loaded["歩数"].apply(rank_steps)
         loaded = loaded.sort_values("日付")
 
     return loaded
 
 
+def csv_text_from_data(data: pd.DataFrame) -> str:
+    data = normalize_columns(data)
+    return data.to_csv(index=False)
+
+
 def save_data(data: pd.DataFrame) -> None:
     data = normalize_columns(data)
+    csv_text = csv_text_from_data(data)
+    if github_storage_enabled():
+        write_github_records(csv_text)
+
     data.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+
+
+def upsert_records(data: pd.DataFrame, rows: pd.DataFrame) -> tuple[pd.DataFrame, int, int]:
+    data = normalize_columns(data)
+    rows = normalize_columns(rows)
+
+    data["_date_key"] = pd.to_datetime(data["日付"], errors="coerce").dt.strftime("%Y-%m-%d")
+    rows["_date_key"] = pd.to_datetime(rows["日付"], errors="coerce").dt.strftime("%Y-%m-%d")
+    existing_keys = set(data["_date_key"].dropna())
+    updated = int(rows["_date_key"].isin(existing_keys).sum())
+    added = int((~rows["_date_key"].isin(existing_keys)).sum())
+
+    data = data[~data["_date_key"].isin(rows["_date_key"])]
+    combined = pd.concat([data.drop(columns=["_date_key"]), rows.drop(columns=["_date_key"])], ignore_index=True)
+    combined["歩数ランク"] = combined["歩数"].apply(rank_steps)
+    combined = combined.sort_values("日付")
+    return normalize_columns(combined), added, updated
 
 
 def predict_target_date(data: pd.DataFrame, target_weight: float) -> str:
@@ -376,7 +528,54 @@ def predict_target_date(data: pd.DataFrame, target_weight: float) -> str:
     return f"現在ペースなら、約{days_needed}日後（{target_date.strftime('%Y/%m/%d')}）に{target_weight:.1f}kg到達見込みです。"
 
 
+def alcohol_present(value: Any) -> bool:
+    text = str(value).strip().lower()
+    if not text:
+        return False
+    return text not in {"なし", "無", "no", "n", "false", "0"}
+
+
+def condition_score(value: Any) -> float | None:
+    text = str(value).strip()
+    if not text:
+        return None
+
+    numeric = parse_number(text, default=None)
+    if numeric is not None and 0 <= numeric <= 100:
+        return numeric / 20 if numeric > 5 else numeric
+
+    for keyword, score in CONDITION_SCORES.items():
+        if keyword in text:
+            return float(score)
+    return None
+
+
+def count_bench_90kg_sets(training_detail: Any) -> int:
+    text = str(training_detail or "")
+    if not text:
+        return 0
+
+    total = 0
+    for match in re.finditer(r"90\s*kg\s*([0-9,\s]+)", text, flags=re.IGNORECASE):
+        reps_text = match.group(1).strip(" ,")
+        reps = [rep for rep in re.split(r"[,\s]+", reps_text) if rep.isdigit()]
+        total += len(reps)
+
+    if total > 0:
+        return total
+    return len(re.findall(r"90\s*kg", text, flags=re.IGNORECASE))
+
+
+def weekly_label(series: pd.Series) -> pd.Series:
+    return series.dt.to_period("W-SUN").apply(lambda period: f"{period.start_time:%Y/%m/%d}週")
+
+
 df = load_data()
+storage_config = github_storage_config()
+if github_storage_enabled():
+    st.caption(f"保存先: GitHub `{storage_config['repository']}/{storage_config['path']}` ({storage_config['branch']})")
+else:
+    st.caption("保存先: ローカル records.csv（Streamlit Cloudで永続化するにはGitHub保存用のsecretsを設定してください）")
 
 st.header("今日の記録")
 with st.form("daily_record_form"):
@@ -464,15 +663,18 @@ if submitted:
     )
     df = pd.concat([df, new_row], ignore_index=True)
     df = df.sort_values("日付")
-    save_data(df)
-    st.success(f"CSVへ保存しました。合計カロリーは約{estimated_calories:,}kcalです。")
-    st.write(
-        f"朝 {breakfast_kcal:,}kcal / 昼 {lunch_kcal:,}kcal / 夜 {dinner_kcal:,}kcal / "
-        f"間食 {snacks_kcal:,}kcal / ドリンク {drinks_kcal:,}kcal"
-    )
+    try:
+        save_data(df)
+        st.success(f"CSVへ保存しました。合計カロリーは約{estimated_calories:,}kcalです。")
+        st.write(
+            f"朝 {breakfast_kcal:,}kcal / 昼 {lunch_kcal:,}kcal / 夜 {dinner_kcal:,}kcal / "
+            f"間食 {snacks_kcal:,}kcal / ドリンク {drinks_kcal:,}kcal"
+        )
+    except Exception as exc:
+        st.error(f"保存に失敗しました: {exc}")
 
 st.header("ChatGPTログ貼り付け")
-st.caption("1日分のJSONを貼り付けると、records.csvに1行追加します。JSON配列なら複数日分も追加できます。")
+st.caption("1日分のJSONを貼り付けると、records.csvへ保存します。同じ日付があれば上書きし、なければ追加します。JSON配列なら複数日分も保存できます。")
 chatgpt_log = st.text_area(
     "JSON形式のログ",
     placeholder='{"日付":"2026-06-28","体重":85.2,"歩数":8200,"歩数ランク":"B","睡眠時間":7.5,"朝":"プロテイン","昼":"うどん","夜":"鶏むね肉","間食":"オイコス","仕事中のドリンク":"コーヒー","推定摂取カロリー":1850,"筋トレ有無":true,"筋トレ内容":"ベンチプレス","体調":"良い","飲酒":"なし","今日の採点":85,"コメント":"よくできた"}',
@@ -483,16 +685,34 @@ if st.button("ChatGPTログをCSVに追加"):
     try:
         parsed = json.loads(chatgpt_log)
         records = parsed if isinstance(parsed, list) else [parsed]
+        if not records:
+            raise ValueError("JSON配列が空です。1件以上のログを入れてください。")
         if not all(isinstance(record, dict) for record in records):
             raise ValueError("JSONはオブジェクト、またはオブジェクトの配列にしてください。")
 
-        imported_rows = pd.DataFrame([normalize_record(record) for record in records])
-        df = pd.concat([df, imported_rows], ignore_index=True)
-        df = df.sort_values("日付")
+        normalized_records = []
+        validation_errors = []
+        for index, record in enumerate(records, start=1):
+            try:
+                normalized_records.append(normalize_record(record, record_number=index))
+            except RecordValidationError as exc:
+                validation_errors.extend(exc.errors)
+        if validation_errors:
+            raise RecordValidationError(validation_errors)
+
+        imported_rows = pd.DataFrame(normalized_records)
+        df, added_count, updated_count = upsert_records(df, imported_rows)
         save_data(df)
-        st.success(f"{len(imported_rows)}件のChatGPTログをrecords.csvへ追加しました。")
+        st.success(
+            f"{len(imported_rows)}件のChatGPTログをrecords.csvへ保存しました。"
+            f"追加: {added_count}件 / 上書き: {updated_count}件"
+        )
     except json.JSONDecodeError as exc:
         st.error(f"JSONの形式を確認してください: {exc}")
+    except RecordValidationError as exc:
+        st.error("読み取れなかった項目があります。")
+        for message in exc.errors:
+            st.write(f"- {message}")
     except Exception as exc:
         st.error(f"取り込みに失敗しました: {exc}")
 
@@ -501,16 +721,30 @@ if df.empty:
 else:
     df = df.sort_values("日付")
     latest = df.iloc[-1]
-    df_for_chart = df.set_index("日付")
+    df_for_chart = df.set_index("日付").copy()
     df_for_chart["7日平均体重"] = df_for_chart["体重"].rolling(window=7, min_periods=1).mean()
+    df_for_chart["ベンチプレス90kgセット数"] = df_for_chart["筋トレ内容"].apply(count_bench_90kg_sets)
+    df_for_chart["飲酒あり"] = df_for_chart["飲酒"].apply(alcohol_present)
+    df_for_chart["体調スコア"] = df_for_chart["体調"].apply(condition_score)
+    df_for_chart["週"] = weekly_label(df_for_chart.index.to_series())
+
+    today = pd.Timestamp(dt.date.today())
+    week_start = today - pd.Timedelta(days=today.weekday())
+    this_week = df_for_chart[df_for_chart.index >= week_start]
+    condition_average = df_for_chart["体調スコア"].dropna().mean()
 
     st.header("ダッシュボード")
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("最新体重", f"{latest['体重']:.1f}kg")
-    c2.metric("7日平均体重", f"{df_for_chart['7日平均体重'].iloc[-1]:.1f}kg")
-    c3.metric("平均歩数", f"{df['歩数'].mean():,.0f}歩")
-    c4.metric("平均摂取カロリー", f"{df['推定摂取カロリー'].mean():,.0f}kcal")
-    c5.metric("筋トレ回数", f"{int((df['筋トレ有無'] == 'あり').sum())}回")
+    c2.metric("今週の平均体重", f"{this_week['体重'].mean():.1f}kg" if not this_week.empty else "-")
+    c3.metric("7日平均体重", f"{df_for_chart['7日平均体重'].iloc[-1]:.1f}kg")
+    c4.metric("平均歩数", f"{df['歩数'].mean():,.0f}歩")
+
+    c5, c6, c7, c8 = st.columns(4)
+    c5.metric("平均摂取カロリー", f"{df['推定摂取カロリー'].mean():,.0f}kcal")
+    c6.metric("筋トレ回数", f"{int((df['筋トレ有無'] == 'あり').sum())}回")
+    c7.metric("飲酒ありの日数", f"{int(df_for_chart['飲酒あり'].sum())}日")
+    c8.metric("体調平均", f"{condition_average:.1f}/5" if pd.notna(condition_average) else "-")
 
     st.subheader("82kg到達予測")
     st.info(predict_target_date(df, TARGET_WEIGHT))
@@ -523,6 +757,21 @@ else:
 
     st.subheader("歩数推移")
     st.bar_chart(df_for_chart[["歩数"]])
+
+    st.subheader("歩数ランク別の日数")
+    step_rank_counts = df["歩数ランク"].value_counts().reindex(STEP_RANK_ORDER, fill_value=0)
+    st.bar_chart(step_rank_counts)
+
+    st.subheader("週ごとの筋トレ回数")
+    weekly_training = (
+        df_for_chart.assign(筋トレ回数=(df_for_chart["筋トレ有無"] == "あり").astype(int))
+        .groupby("週")["筋トレ回数"]
+        .sum()
+    )
+    st.bar_chart(weekly_training)
+
+    st.subheader("ベンチプレス90kgセット数の推移")
+    st.line_chart(df_for_chart[["ベンチプレス90kgセット数"]])
 
     st.subheader("直近の食事・筋トレ内容")
     st.write(f"朝: {latest.get('朝', '')} / {int(latest.get('朝カロリー(kcal)', 0)):,}kcal")
