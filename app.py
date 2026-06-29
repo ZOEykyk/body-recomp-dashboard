@@ -491,8 +491,6 @@ def weight_score(weight: float, mode: str) -> int:
         return 0
     if mode == "RECOVERY":
         return bounded_score(18 - max(0, weight - TARGET_WEIGHT) * 0.45, 20)
-    if mode == "EVENT":
-        return bounded_score(19 - max(0, weight - TARGET_WEIGHT) * 0.55, 20)
     if mode == "BULK":
         return bounded_score(16, 20)
     return bounded_score(20 - max(0, weight - TARGET_WEIGHT) * 0.8, 20)
@@ -522,10 +520,10 @@ def training_score(trained: Any, mode: str) -> int:
     if mode == "RECOVERY":
         return 15 if not did_train else 12
     if mode == "EVENT":
-        return 15 if did_train else 10
+        return 15 if did_train else 0
     if mode == "BULK":
-        return 15 if did_train else 6
-    return 15 if did_train else 5
+        return 15 if did_train else 5
+    return 15 if did_train else 0
 
 
 def sleep_score(hours: float, mode: str) -> int:
