@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime as dt
 import base64
 import json
@@ -12,13 +14,26 @@ import pandas as pd
 import streamlit as st
 
 DATA_FILE = "records.csv"
-TARGET_WEIGHT = 82.0
+TARGET_WEIGHT = 76.0
 DEFAULT_GITHUB_REPOSITORY = "ZOEykyk/body-recomp-dashboard"
 DEFAULT_RECORDS_BRANCH = "main"
 STEP_RANK_ORDER = ["S", "A", "B", "C", "D"]
+MODES = ["NORMAL", "EVENT", "RECOVERY", "BULK"]
+SCORE_COMPONENTS = [
+    "体重スコア",
+    "食事スコア",
+    "タンパク質スコア",
+    "歩数スコア",
+    "筋トレスコア",
+    "睡眠スコア",
+    "体調スコア",
+]
+BODY_SCORE_COLUMNS = ["Body Score"] + SCORE_COMPONENTS
 
 REQUIRED_COLUMNS = [
     "日付",
+    "モード",
+    "イベント名",
     "体重",
     "歩数",
     "歩数ランク",
@@ -44,11 +59,24 @@ OPTIONAL_COLUMNS = [
     "間食カロリー(kcal)",
     "ドリンクカロリー(kcal)",
     "ベンチプレス(kg)",
+    "Body Score",
+    "体重スコア",
+    "食事スコア",
+    "タンパク質スコア",
+    "歩数スコア",
+    "筋トレスコア",
+    "睡眠スコア",
+    "体調スコア",
 ]
 
 COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 
 COLUMN_ALIASES = {
+    "mode": "モード",
+    "event": "イベント名",
+    "event_name": "イベント名",
+    "body_score": "Body Score",
+    "total_score": "Body Score",
     "体重(kg)": "体重",
     "推定摂取カロリー(kcal)": "推定摂取カロリー",
     "摂取カロリー": "推定摂取カロリー",
@@ -59,6 +87,8 @@ COLUMN_ALIASES = {
 }
 
 TEXT_COLUMNS = [
+    "モード",
+    "イベント名",
     "歩数ランク",
     "朝",
     "昼",
@@ -84,6 +114,14 @@ NUMERIC_COLUMNS = [
     "間食カロリー(kcal)",
     "ドリンクカロリー(kcal)",
     "ベンチプレス(kg)",
+    "Body Score",
+    "体重スコア",
+    "食事スコア",
+    "タンパク質スコア",
+    "歩数スコア",
+    "筋トレスコア",
+    "睡眠スコア",
+    "体調スコア",
 ]
 
 CALORIE_KEYWORDS = {
@@ -146,6 +184,8 @@ MEAL_FALLBACK = {
 
 JSON_KEY_ALIASES = {
     "日付": ["日付", "date", "record_date", "記録日"],
+    "モード": ["モード", "mode"],
+    "イベント名": ["イベント名", "event", "event_name"],
     "体重": ["体重", "体重(kg)", "weight", "weight_kg"],
     "歩数": ["歩数", "steps"],
     "歩数ランク": ["歩数ランク", "step_rank", "steps_rank"],
@@ -168,6 +208,14 @@ JSON_KEY_ALIASES = {
     "体調": ["体調", "condition", "health"],
     "飲酒": ["飲酒", "alcohol", "drinking"],
     "今日の採点": ["今日の採点", "採点", "score"],
+    "Body Score": ["Body Score", "body_score", "total_score"],
+    "体重スコア": ["体重スコア"],
+    "食事スコア": ["食事スコア"],
+    "タンパク質スコア": ["タンパク質スコア"],
+    "歩数スコア": ["歩数スコア"],
+    "筋トレスコア": ["筋トレスコア"],
+    "睡眠スコア": ["睡眠スコア"],
+    "体調スコア": ["体調スコア"],
     "コメント": ["コメント", "comment", "memo", "メモ"],
 }
 
@@ -356,6 +404,203 @@ def normalize_yes_no(value: Any) -> str:
     return text
 
 
+def normalize_mode(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    mode_aliases = {
+        "通常": "NORMAL",
+        "通常日": "NORMAL",
+        "イベント": "EVENT",
+        "イベント日": "EVENT",
+        "飲み会": "EVENT",
+        "旅行": "EVENT",
+        "体調不良": "RECOVERY",
+        "二日酔い": "RECOVERY",
+        "リカバリー": "RECOVERY",
+        "増量": "BULK",
+        "増量期": "BULK",
+    }
+    if text in MODES:
+        return text
+    return mode_aliases.get(str(value or "").strip(), "NORMAL")
+
+
+def bounded_score(value: float, maximum: int) -> int:
+    return int(round(max(0, min(maximum, value))))
+
+
+def protein_score_from_text(*values: Any) -> int:
+    text = " ".join(str(value or "") for value in values)
+    keywords = [
+        "プロテイン",
+        "鶏",
+        "チキン",
+        "サラダチキン",
+        "卵",
+        "たまご",
+        "オイコス",
+        "ヨーグルト",
+        "肉",
+        "魚",
+        "鮭",
+        "ツナ",
+        "豆腐",
+        "納豆",
+        "protein",
+    ]
+    hits = sum(1 for keyword in keywords if keyword.lower() in text.lower())
+    if hits >= 3:
+        return 15
+    if hits == 2:
+        return 12
+    if hits == 1:
+        return 8
+    return 3 if text.strip() else 0
+
+
+def calorie_score(calories: float, mode: str) -> int:
+    if mode == "EVENT":
+        if 1500 <= calories <= 3200:
+            return 25
+        if calories <= 3800:
+            return 20
+        return 14
+    if mode == "RECOVERY":
+        if 1400 <= calories <= 2800:
+            return 23
+        if calories <= 3400:
+            return 18
+        return 12
+    if mode == "BULK":
+        if 2200 <= calories <= 3200:
+            return 23
+        if 1800 <= calories <= 3600:
+            return 18
+        return 12
+
+    if 1600 <= calories <= 2300:
+        return 25
+    if 2300 < calories <= 2700 or 1300 <= calories < 1600:
+        return 18
+    if 2700 < calories <= 3200:
+        return 12
+    return 8 if calories > 0 else 0
+
+
+def weight_score(weight: float, mode: str) -> int:
+    if weight <= 0:
+        return 0
+    if mode == "RECOVERY":
+        return bounded_score(18 - max(0, weight - TARGET_WEIGHT) * 0.45, 20)
+    if mode == "BULK":
+        return bounded_score(16, 20)
+    return bounded_score(20 - max(0, weight - TARGET_WEIGHT) * 0.8, 20)
+
+
+def steps_score(steps: float, mode: str) -> int:
+    if mode == "RECOVERY":
+        if steps >= 6000:
+            return 10
+        if steps >= 3000:
+            return 8
+        return 6 if steps > 0 else 4
+    if steps >= 12000:
+        return 10
+    if steps >= 10000:
+        return 9
+    if steps >= 8000:
+        return 8
+    if steps >= 6000:
+        return 6
+    return 3 if steps > 0 else 0
+
+
+def training_score(trained: Any, mode: str) -> int:
+    trained_text = normalize_yes_no(trained)
+    did_train = trained_text == "あり"
+    if mode == "RECOVERY":
+        return 15 if not did_train else 12
+    if mode == "EVENT":
+        return 15 if did_train else 0
+    if mode == "BULK":
+        return 15 if did_train else 5
+    return 15 if did_train else 0
+
+
+def sleep_score(hours: float, mode: str) -> int:
+    if mode == "RECOVERY":
+        if hours >= 8:
+            return 10
+        if hours >= 7:
+            return 8
+        if hours >= 6:
+            return 6
+        return 3 if hours > 0 else 0
+    if 7 <= hours <= 9:
+        return 10
+    if 6 <= hours < 7 or 9 < hours <= 10:
+        return 8
+    if 5 <= hours < 6:
+        return 5
+    return 2 if hours > 0 else 0
+
+
+def health_score(condition: Any, mode: str) -> int:
+    parsed = condition_score(condition)
+    if parsed is None:
+        return 3 if mode in {"EVENT", "RECOVERY"} else 0
+    return bounded_score(parsed, 5)
+
+
+def score_from_row(row: dict[str, Any] | pd.Series) -> dict[str, int]:
+    mode = normalize_mode(row.get("モード", "NORMAL"))
+    scores = {
+        "体重スコア": weight_score(parse_number(row.get("体重"), default=0), mode),
+        "食事スコア": calorie_score(parse_number(row.get("推定摂取カロリー"), default=0), mode),
+        "タンパク質スコア": protein_score_from_text(
+            row.get("朝"),
+            row.get("昼"),
+            row.get("夜"),
+            row.get("間食"),
+            row.get("仕事中のドリンク"),
+        ),
+        "歩数スコア": steps_score(parse_number(row.get("歩数"), default=0), mode),
+        "筋トレスコア": training_score(row.get("筋トレ有無"), mode),
+        "睡眠スコア": sleep_score(parse_number(row.get("睡眠時間"), default=0), mode),
+        "体調スコア": health_score(row.get("体調"), mode),
+    }
+    scores["Body Score"] = sum(scores.values())
+    return scores
+
+
+def fill_body_scores(row: dict[str, Any]) -> dict[str, Any]:
+    auto_scores = score_from_row(row)
+    for column in SCORE_COMPONENTS:
+        if row.get(column) in (None, ""):
+            row[column] = auto_scores[column]
+        else:
+            row[column] = int(parse_number(row[column], default=auto_scores[column]))
+
+    if row.get("Body Score") in (None, ""):
+        row["Body Score"] = sum(int(row[column]) for column in SCORE_COMPONENTS)
+    else:
+        row["Body Score"] = int(parse_number(row["Body Score"], default=sum(int(row[column]) for column in SCORE_COMPONENTS)))
+    return row
+
+
+def ensure_body_scores(data: pd.DataFrame) -> pd.DataFrame:
+    data = data.copy()
+    if data.empty:
+        return data
+
+    for index, row in data.iterrows():
+        if parse_number(row.get("Body Score"), default=0) > 0:
+            continue
+        filled = fill_body_scores(row.to_dict())
+        for column in BODY_SCORE_COLUMNS:
+            data.at[index, column] = filled[column]
+    return data
+
+
 def normalize_date(value: Any) -> pd.Timestamp:
     if value is None or value == "":
         raise ValueError("日付がありません")
@@ -403,8 +648,10 @@ def normalize_record(raw: dict[str, Any], record_number: int = 1) -> dict[str, A
     row["歩数"] = int(parse_number_for_record("歩数", row["歩数"], errors))
     row["歩数ランク"] = rank_steps(row["歩数"])
     row["睡眠時間"] = parse_number_for_record("睡眠時間", row["睡眠時間"], errors)
+    row["モード"] = normalize_mode(row["モード"])
     row["筋トレ有無"] = normalize_yes_no(row["筋トレ有無"])
     row["今日の採点"] = int(parse_number_for_record("今日の採点", row["今日の採点"], errors))
+    row["イベント名"] = "" if row["イベント名"] is None else str(row["イベント名"])
 
     for column in ["朝", "昼", "夜", "間食", "仕事中のドリンク", "筋トレ内容", "体調", "飲酒", "コメント"]:
         row[column] = "" if row[column] is None else str(row[column])
@@ -428,6 +675,7 @@ def normalize_record(raw: dict[str, Any], record_number: int = 1) -> dict[str, A
             ]
         )
     row["推定摂取カロリー"] = int(estimated)
+    row = fill_body_scores(row)
 
     if errors:
         raise RecordValidationError([f"{record_number}件目の{message}" for message in errors])
@@ -444,6 +692,8 @@ def normalize_columns(data: pd.DataFrame) -> pd.DataFrame:
     for column in COLUMNS:
         if column not in data.columns:
             data[column] = "" if column in TEXT_COLUMNS else 0
+
+    data["モード"] = data["モード"].apply(normalize_mode)
 
     return data[COLUMNS]
 
@@ -471,7 +721,11 @@ def load_data() -> pd.DataFrame:
         loaded["歩数"] = loaded["歩数"].astype(int)
         loaded["推定摂取カロリー"] = loaded["推定摂取カロリー"].astype(int)
         loaded["今日の採点"] = loaded["今日の採点"].astype(int)
+        for column in BODY_SCORE_COLUMNS:
+            loaded[column] = loaded[column].astype(int)
+        loaded["モード"] = loaded["モード"].apply(normalize_mode)
         loaded["歩数ランク"] = loaded["歩数"].apply(rank_steps)
+        loaded = ensure_body_scores(loaded)
         loaded = loaded.sort_values("日付")
 
     return loaded
@@ -504,6 +758,7 @@ def upsert_records(data: pd.DataFrame, rows: pd.DataFrame) -> tuple[pd.DataFrame
     data = data[~data["_date_key"].isin(rows["_date_key"])]
     combined = pd.concat([data.drop(columns=["_date_key"]), rows.drop(columns=["_date_key"])], ignore_index=True)
     combined["歩数ランク"] = combined["歩数"].apply(rank_steps)
+    combined = ensure_body_scores(combined)
     combined = combined.sort_values("日付")
     return normalize_columns(combined), added, updated
 
@@ -582,9 +837,11 @@ with st.form("daily_record_form"):
     basic_col1, basic_col2 = st.columns(2)
     with basic_col1:
         record_date = st.date_input("日付", value=dt.date.today())
+        mode = st.selectbox("モード", MODES, help="NORMAL=通常日 / EVENT=イベント日 / RECOVERY=体調回復日 / BULK=増量期")
         weight = st.number_input("朝の体重(kg)", min_value=40.0, max_value=150.0, value=85.0, step=0.1)
         sleep_hours = st.number_input("睡眠時間", min_value=0.0, max_value=24.0, value=7.0, step=0.5)
     with basic_col2:
+        event_name = st.text_input("イベント名", placeholder="例：焼肉、飲み会、旅行、デート")
         steps = st.number_input("歩数", min_value=0, max_value=50000, value=7000, step=500)
         condition = st.text_input("体調", placeholder="例：良い / やや疲れ / 眠い")
         alcohol = st.selectbox("飲酒", ["なし", "あり"])
@@ -632,40 +889,46 @@ if submitted:
     drinks_kcal = final_kcal(estimate_calories(work_drinks, "仕事中のドリンク"), drinks_kcal_manual)
     estimated_calories = breakfast_kcal + lunch_kcal + dinner_kcal + snacks_kcal + drinks_kcal
 
+    record = fill_body_scores(
+        {
+            "日付": pd.to_datetime(record_date),
+            "モード": mode,
+            "イベント名": event_name,
+            "体重": weight,
+            "歩数": steps,
+            "歩数ランク": rank_steps(steps),
+            "睡眠時間": sleep_hours,
+            "朝": breakfast,
+            "昼": lunch,
+            "夜": dinner,
+            "間食": snacks,
+            "仕事中のドリンク": work_drinks,
+            "推定摂取カロリー": estimated_calories,
+            "筋トレ有無": "あり" if trained else "なし",
+            "筋トレ内容": training_detail,
+            "体調": condition,
+            "飲酒": alcohol,
+            "今日の採点": score,
+            "コメント": comment,
+            "朝カロリー(kcal)": breakfast_kcal,
+            "昼カロリー(kcal)": lunch_kcal,
+            "夜カロリー(kcal)": dinner_kcal,
+            "間食カロリー(kcal)": snacks_kcal,
+            "ドリンクカロリー(kcal)": drinks_kcal,
+            "ベンチプレス(kg)": bench if trained else 0,
+        }
+    )
     new_row = pd.DataFrame(
-        [
-            {
-                "日付": pd.to_datetime(record_date),
-                "体重": weight,
-                "歩数": steps,
-                "歩数ランク": rank_steps(steps),
-                "睡眠時間": sleep_hours,
-                "朝": breakfast,
-                "昼": lunch,
-                "夜": dinner,
-                "間食": snacks,
-                "仕事中のドリンク": work_drinks,
-                "推定摂取カロリー": estimated_calories,
-                "筋トレ有無": "あり" if trained else "なし",
-                "筋トレ内容": training_detail,
-                "体調": condition,
-                "飲酒": alcohol,
-                "今日の採点": score,
-                "コメント": comment,
-                "朝カロリー(kcal)": breakfast_kcal,
-                "昼カロリー(kcal)": lunch_kcal,
-                "夜カロリー(kcal)": dinner_kcal,
-                "間食カロリー(kcal)": snacks_kcal,
-                "ドリンクカロリー(kcal)": drinks_kcal,
-                "ベンチプレス(kg)": bench if trained else 0,
-            }
-        ]
+        [record]
     )
     df = pd.concat([df, new_row], ignore_index=True)
     df = df.sort_values("日付")
     try:
         save_data(df)
-        st.success(f"CSVへ保存しました。合計カロリーは約{estimated_calories:,}kcalです。")
+        st.success(
+            f"CSVへ保存しました。合計カロリーは約{estimated_calories:,}kcal、"
+            f"Body Scoreは{record['Body Score']}点です。"
+        )
         st.write(
             f"朝 {breakfast_kcal:,}kcal / 昼 {lunch_kcal:,}kcal / 夜 {dinner_kcal:,}kcal / "
             f"間食 {snacks_kcal:,}kcal / ドリンク {drinks_kcal:,}kcal"
@@ -677,7 +940,7 @@ st.header("ChatGPTログ貼り付け")
 st.caption("1日分のJSONを貼り付けると、records.csvへ保存します。同じ日付があれば上書きし、なければ追加します。JSON配列なら複数日分も保存できます。")
 chatgpt_log = st.text_area(
     "JSON形式のログ",
-    placeholder='{"日付":"2026-06-28","体重":85.2,"歩数":8200,"歩数ランク":"B","睡眠時間":7.5,"朝":"プロテイン","昼":"うどん","夜":"鶏むね肉","間食":"オイコス","仕事中のドリンク":"コーヒー","推定摂取カロリー":1850,"筋トレ有無":true,"筋トレ内容":"ベンチプレス","体調":"良い","飲酒":"なし","今日の採点":85,"コメント":"よくできた"}',
+    placeholder='{"日付":"2026-06-28","mode":"EVENT","event_name":"焼肉","体重":85.2,"歩数":8200,"睡眠時間":7.5,"朝":"プロテイン","昼":"うどん","夜":"焼肉","間食":"オイコス","仕事中のドリンク":"コーヒー","推定摂取カロリー":2600,"筋トレ有無":true,"筋トレ内容":"ベンチプレス","体調":"良い","飲酒":"あり","body_score":82,"コメント":"イベントを楽しみつつ暴食は避けた"}',
     height=220,
 )
 
@@ -720,33 +983,52 @@ if df.empty:
     st.info("まだ記録がありません。まずは今日の記録を保存してみましょう。")
 else:
     df = df.sort_values("日付")
+    df = ensure_body_scores(df)
     latest = df.iloc[-1]
     df_for_chart = df.set_index("日付").copy()
     df_for_chart["7日平均体重"] = df_for_chart["体重"].rolling(window=7, min_periods=1).mean()
+    df_for_chart["7日平均Body Score"] = df_for_chart["Body Score"].rolling(window=7, min_periods=1).mean()
     df_for_chart["ベンチプレス90kgセット数"] = df_for_chart["筋トレ内容"].apply(count_bench_90kg_sets)
     df_for_chart["飲酒あり"] = df_for_chart["飲酒"].apply(alcohol_present)
-    df_for_chart["体調スコア"] = df_for_chart["体調"].apply(condition_score)
+    df_for_chart["体調5段階"] = df_for_chart["体調"].apply(condition_score)
     df_for_chart["週"] = weekly_label(df_for_chart.index.to_series())
 
     today = pd.Timestamp(dt.date.today())
     week_start = today - pd.Timedelta(days=today.weekday())
     this_week = df_for_chart[df_for_chart.index >= week_start]
-    condition_average = df_for_chart["体調スコア"].dropna().mean()
+    condition_average = df_for_chart["体調5段階"].dropna().mean()
 
     st.header("ダッシュボード")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("最新体重", f"{latest['体重']:.1f}kg")
-    c2.metric("今週の平均体重", f"{this_week['体重'].mean():.1f}kg" if not this_week.empty else "-")
-    c3.metric("7日平均体重", f"{df_for_chart['7日平均体重'].iloc[-1]:.1f}kg")
-    c4.metric("平均歩数", f"{df['歩数'].mean():,.0f}歩")
+    c1.metric("最新Body Score", f"{int(latest['Body Score'])}点")
+    c2.metric("7日平均Body Score", f"{df_for_chart['7日平均Body Score'].iloc[-1]:.1f}点")
+    c3.metric("最新モード", str(latest["モード"]))
+    c4.metric("最新体重", f"{latest['体重']:.1f}kg")
+
+    mode_counts = df["モード"].value_counts().reindex(MODES, fill_value=0)
+    m1, m2, m3, m4 = st.columns(4)
+    for metric, mode_name in zip([m1, m2, m3, m4], MODES):
+        metric.metric(f"{mode_name}の日数", f"{int(mode_counts[mode_name])}日")
+
+    st.subheader("Body Score推移")
+    st.line_chart(df_for_chart[["Body Score", "7日平均Body Score"]])
+
+    st.subheader("各スコア内訳の推移")
+    st.line_chart(df_for_chart[SCORE_COMPONENTS])
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("今週の平均体重", f"{this_week['体重'].mean():.1f}kg" if not this_week.empty else "-")
+    c2.metric("7日平均体重", f"{df_for_chart['7日平均体重'].iloc[-1]:.1f}kg")
+    c3.metric("平均歩数", f"{df['歩数'].mean():,.0f}歩")
+    c4.metric("平均摂取カロリー", f"{df['推定摂取カロリー'].mean():,.0f}kcal")
 
     c5, c6, c7, c8 = st.columns(4)
-    c5.metric("平均摂取カロリー", f"{df['推定摂取カロリー'].mean():,.0f}kcal")
+    c5.metric("平均Body Score", f"{df['Body Score'].mean():.1f}点")
     c6.metric("筋トレ回数", f"{int((df['筋トレ有無'] == 'あり').sum())}回")
     c7.metric("飲酒ありの日数", f"{int(df_for_chart['飲酒あり'].sum())}日")
     c8.metric("体調平均", f"{condition_average:.1f}/5" if pd.notna(condition_average) else "-")
 
-    st.subheader("82kg到達予測")
+    st.subheader("76kg到達予測")
     st.info(predict_target_date(df, TARGET_WEIGHT))
 
     st.subheader("体重推移")
@@ -783,6 +1065,10 @@ else:
         f"{int(latest.get('ドリンクカロリー(kcal)', 0)):,}kcal"
     )
     st.write(f"筋トレ: {latest.get('筋トレ有無', '')} / {latest.get('筋トレ内容', '')}")
+    st.write(
+        f"モード: {latest.get('モード', '')} / イベント名: {latest.get('イベント名', '')} / "
+        f"Body Score: {int(latest.get('Body Score', 0))}"
+    )
     st.write(f"体調: {latest.get('体調', '')} / 飲酒: {latest.get('飲酒', '')} / 採点: {latest.get('今日の採点', 0)}")
     st.write(f"コメント: {latest.get('コメント', '')}")
 

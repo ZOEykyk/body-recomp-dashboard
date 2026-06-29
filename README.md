@@ -2,6 +2,8 @@
 
 ボディリコンプ管理システム。食事、体重、歩数、睡眠、筋トレ、体調を記録し、減量と筋力維持の進捗を可視化します。
 
+Project BodyOS は、日々の行動を同じ物差しで眺めつつ、通常日・イベント日・体調回復日を無理に同じ基準で評価しないための記録システムです。長期的には 75〜76kg を目標体重帯とし、体重だけでなく食事、タンパク質、歩数、筋トレ、睡眠、体調を含めてコンディションを管理します。
+
 ## Streamlit Cloudでrecords.csvを永続化する
 
 Streamlit Cloudのファイルシステムは永続化されないため、`records.csv` はGitHub Contents APIでリポジトリ上に保存します。
@@ -25,6 +27,33 @@ RECORDS_CSV_PATH = "records.csv"
 - C: 6,000歩以上
 - D: 6,000歩未満
 
+## Mode
+
+毎日の記録には `モード` と `イベント名` を保存できます。
+
+- `NORMAL`: 通常日。食事、歩数、筋トレ、睡眠を通常基準で評価します。
+- `EVENT`: 焼肉、飲み会、旅行、デートなど。食事の減点を少し緩め、イベントを楽しみつつ暴食を避けられたかを評価します。
+- `RECOVERY`: 体調不良、二日酔い、睡眠不足など。体重減少や筋トレよりも睡眠、体調回復、無理をしない判断を重視します。
+- `BULK`: 将来の増量期用。現時点では保存と簡易採点に対応しています。
+
+ChatGPT JSONログでは `mode`, `モード`, `event`, `event_name`, `イベント名` を受け付けます。
+
+## Body Score
+
+Body Score は 100点満点の総合スコアです。ChatGPT JSONログで各スコアが渡された場合はその値を優先し、未指定の場合はアプリ側で自動採点します。
+
+通常モードの配点目安:
+
+- 体重スコア: 20点
+- 食事スコア: 25点
+- タンパク質スコア: 15点
+- 歩数スコア: 10点
+- 筋トレスコア: 15点
+- 睡眠スコア: 10点
+- 体調スコア: 5点
+
+ChatGPT JSONログでは `body_score`, `Body Score`, `total_score`, `体重スコア`, `食事スコア`, `タンパク質スコア`, `歩数スコア`, `筋トレスコア`, `睡眠スコア`, `体調スコア` を受け付けます。
+
 ## ChatGPT JSONログ形式
 
 アプリの「ChatGPTログ貼り付け」欄には、1日分のJSONオブジェクト、または複数日分のJSON配列を貼り付けます。同じ日付の記録が既にある場合は上書きし、なければ追加します。
@@ -32,6 +61,8 @@ RECORDS_CSV_PATH = "records.csv"
 ```json
 {
   "日付": "2026-06-28",
+  "mode": "EVENT",
+  "event_name": "焼肉",
   "体重": 85.2,
   "歩数": 8200,
   "歩数ランク": "B",
@@ -47,6 +78,14 @@ RECORDS_CSV_PATH = "records.csv"
   "体調": "良い",
   "飲酒": "なし",
   "今日の採点": 85,
+  "body_score": 82,
+  "体重スコア": 13,
+  "食事スコア": 22,
+  "タンパク質スコア": 15,
+  "歩数スコア": 8,
+  "筋トレスコア": 15,
+  "睡眠スコア": 7,
+  "体調スコア": 5,
   "コメント": "歩数と食事は良好。明日は睡眠を増やす。"
 }
 ```
@@ -57,6 +96,7 @@ RECORDS_CSV_PATH = "records.csv"
 [
   {
     "日付": "2026-06-28",
+    "モード": "NORMAL",
     "体重": 85.2,
     "歩数": 8200,
     "睡眠時間": 7.5,
@@ -71,11 +111,12 @@ RECORDS_CSV_PATH = "records.csv"
     "体調": "良い",
     "飲酒": "なし",
     "今日の採点": 85,
+    "Body Score": 86,
     "コメント": "よくできた"
   }
 ]
 ```
 
-英語キーも一部受け付けます。例: `date`, `weight`, `steps`, `sleep_hours`, `breakfast`, `lunch`, `dinner`, `snacks`, `work_drinks`, `calories`, `trained`, `workout_detail`, `condition`, `alcohol`, `score`, `comment`。
+英語キーも一部受け付けます。例: `date`, `mode`, `event`, `event_name`, `weight`, `steps`, `sleep_hours`, `breakfast`, `lunch`, `dinner`, `snacks`, `work_drinks`, `calories`, `trained`, `workout_detail`, `condition`, `alcohol`, `score`, `body_score`, `total_score`, `comment`。
 
 日付や数値が読み取れない場合は、アプリ上に「何件目のどの項目が読み取れなかったか」を表示します。
