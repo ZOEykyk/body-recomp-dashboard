@@ -59,6 +59,14 @@ JSONに `body_score` / `Body Score` が含まれている場合、その値は `
 
 ダッシュボードの「Body Scoreを再計算」ボタンを押すと、既存の `records.csv` 全レコードについて最新ロジックで `Body Score` と内訳スコアを再評価し、通常の保存先に反映します。GitHub保存を設定している場合は、GitHub上の `records.csv` も更新されます。
 
+Body Scoreの表示ラベル:
+
+- 90〜100: 🟢 Excellent
+- 80〜89: 🔵 Good
+- 70〜79: 🟡 Fair
+- 60〜69: 🟠 Needs Attention
+- 59以下: 🔴 Recovery Needed
+
 ChatGPT JSONログでは `body_score`, `Body Score`, `total_score`, `体重スコア`, `食事スコア`, `タンパク質スコア`, `歩数スコア`, `筋トレスコア`, `睡眠スコア`, `体調スコア`, `飲酒スコア` も受け付けますが、省略推奨です。
 
 ## ChatGPT JSONログ形式
