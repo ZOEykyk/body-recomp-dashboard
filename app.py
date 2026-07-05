@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime as dt
 import base64
 import json
@@ -163,8 +165,8 @@ JSON_KEY_ALIASES = {
         "calories",
         "kcal",
     ],
-    "筋トレ有無": ["筋トレ有無", "筋トレ", "trained", "workout"],
-    "筋トレ内容": ["筋トレ内容", "training_detail", "workout_detail"],
+    "筋トレ有無": ["筋トレ有無", "筋トレ", "trained", "performed", "workout.performed"],
+    "筋トレ内容": ["筋トレ内容", "筋トレメニュー", "training_detail", "workout_detail", "menu", "workout.menu"],
     "体調": ["体調", "condition", "health"],
     "飲酒": ["飲酒", "alcohol", "drinking"],
     "今日の採点": ["今日の採点", "採点", "score"],
@@ -338,22 +340,66 @@ def parse_number_for_record(field: str, value: Any, errors: list[str], default: 
     return parsed
 
 
+def is_blank_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, dict)):
+        return False
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def normalize_training_detail(value: Any) -> str:
+    if is_blank_value(value):
+        return ""
+    if isinstance(value, (list, tuple)):
+        parts = [normalize_training_detail(item) for item in value]
+        return " / ".join(part for part in parts if part)
+    if isinstance(value, dict):
+        exercise = value.get("exercise") or value.get("種目") or value.get("name")
+        result = value.get("result") or value.get("結果") or value.get("sets") or value.get("reps")
+        if exercise or result:
+            return " ".join(str(part).strip() for part in [exercise, result] if not is_blank_value(part))
+
+        for key in ["menu", "detail", "details", "training_detail", "workout_detail", "筋トレ内容"]:
+            if key in value:
+                return normalize_training_detail(value[key])
+    return str(value).strip()
+
+
 def normalize_yes_no(value: Any) -> str:
+    if is_blank_value(value):
+        return "なし"
     if isinstance(value, bool):
         return "あり" if value else "なし"
+    if isinstance(value, dict):
+        for key in ["performed", "trained", "done", "筋トレ有無", "実施"]:
+            if key in value:
+                return normalize_yes_no(value[key])
+        detail = normalize_training_detail(value)
+        return "あり" if detail else "なし"
+
     text = str(value).strip()
     if not text:
         return "なし"
     lowered = text.lower()
-    if lowered in {"true", "yes", "y", "1", "done"}:
-        return "あり"
-    if lowered in {"false", "no", "n", "0", "none"}:
+    if lowered in {"false", "no", "n", "0", "none", "なし", "休み", "してない"}:
         return "なし"
-    if any(word in text for word in ["あり", "有", "実施", "した"]):
+    if lowered in {"true", "yes", "y", "1", "done", "あり", "実施", "した"}:
         return "あり"
     if any(word in text for word in ["なし", "無", "休み", "してない"]):
         return "なし"
+    if any(word in text for word in ["あり", "有", "実施", "した"]):
+        return "あり"
     return text
+
+
+def training_performed(value: Any) -> bool:
+    return normalize_yes_no(value) == "あり"
 
 
 def normalize_date(value: Any) -> pd.Timestamp:
@@ -369,6 +415,15 @@ def get_nested_value(data: dict[str, Any], keys: list[str]) -> Any:
     for key in keys:
         if key in data:
             return data[key]
+        if "." in key:
+            current: Any = data
+            for part in key.split("."):
+                if not isinstance(current, dict) or part not in current:
+                    current = None
+                    break
+                current = current[part]
+            if current is not None:
+                return current
 
     meals = data.get("食事") or data.get("meals")
     if isinstance(meals, dict):
@@ -404,6 +459,7 @@ def normalize_record(raw: dict[str, Any], record_number: int = 1) -> dict[str, A
     row["歩数ランク"] = rank_steps(row["歩数"])
     row["睡眠時間"] = parse_number_for_record("睡眠時間", row["睡眠時間"], errors)
     row["筋トレ有無"] = normalize_yes_no(row["筋トレ有無"])
+    row["筋トレ内容"] = normalize_training_detail(row["筋トレ内容"])
     row["今日の採点"] = int(parse_number_for_record("今日の採点", row["今日の採点"], errors))
 
     for column in ["朝", "昼", "夜", "間食", "仕事中のドリンク", "筋トレ内容", "体調", "飲酒", "コメント"]:
@@ -444,6 +500,9 @@ def normalize_columns(data: pd.DataFrame) -> pd.DataFrame:
     for column in COLUMNS:
         if column not in data.columns:
             data[column] = "" if column in TEXT_COLUMNS else 0
+
+    data["筋トレ有無"] = data["筋トレ有無"].apply(normalize_yes_no)
+    data["筋トレ内容"] = data["筋トレ内容"].apply(normalize_training_detail)
 
     return data[COLUMNS]
 
@@ -742,7 +801,7 @@ else:
 
     c5, c6, c7, c8 = st.columns(4)
     c5.metric("平均摂取カロリー", f"{df['推定摂取カロリー'].mean():,.0f}kcal")
-    c6.metric("筋トレ回数", f"{int((df['筋トレ有無'] == 'あり').sum())}回")
+    c6.metric("筋トレ回数", f"{int(df['筋トレ有無'].apply(training_performed).sum())}回")
     c7.metric("飲酒ありの日数", f"{int(df_for_chart['飲酒あり'].sum())}日")
     c8.metric("体調平均", f"{condition_average:.1f}/5" if pd.notna(condition_average) else "-")
 
@@ -764,7 +823,7 @@ else:
 
     st.subheader("週ごとの筋トレ回数")
     weekly_training = (
-        df_for_chart.assign(筋トレ回数=(df_for_chart["筋トレ有無"] == "あり").astype(int))
+        df_for_chart.assign(筋トレ回数=df_for_chart["筋トレ有無"].apply(training_performed).astype(int))
         .groupby("週")["筋トレ回数"]
         .sum()
     )

@@ -78,4 +78,10 @@ RECORDS_CSV_PATH = "records.csv"
 
 英語キーも一部受け付けます。例: `date`, `weight`, `steps`, `sleep_hours`, `breakfast`, `lunch`, `dinner`, `snacks`, `work_drinks`, `calories`, `trained`, `workout_detail`, `condition`, `alcohol`, `score`, `comment`。
 
+筋トレ実績は `workout.performed`、`筋トレ有無`、`trained` のいずれでも取り込めます。`あり`、`true`、`yes`、`done`、`実施`、`した` は筋トレあり、`なし`、`false`、`no`、`none`、`休み`、`してない` は筋トレなしとして正規化されます。
+
+`workout.menu` は文字列、配列、オブジェクト配列に対応しています。配列は ` / ` 区切りで保存し、`{"exercise":"ベンチプレス","result":"90kg×5×4"}` のようなオブジェクトは `ベンチプレス 90kg×5×4` の形式に変換して `筋トレ内容` に保存します。
+
+週ごとの筋トレ回数は、保存値の文字列完全一致ではなく、正規化後の筋トレ有無で集計されます。
+
 日付や数値が読み取れない場合は、アプリ上に「何件目のどの項目が読み取れなかったか」を表示します。
