@@ -57,9 +57,16 @@ def workout_text_from_record(record: dict[str, Any]) -> str:
 
 def split_exercise_entries(text: str) -> list[str]:
     normalized = str(text or "")
-    normalized = re.sub(r"[\n\r;；]+", " / ", normalized)
-    entries = re.split(r"\s*/\s*|、|，", normalized)
-    return [entry.strip(" \t-:：。") for entry in entries if entry.strip(" \t-:：。")]
+    lines = [line.strip(" \t-:：。") for line in re.split(r"[\n\r;；]+", normalized) if line.strip(" \t-:：。")]
+    entries: list[str] = []
+    for line in lines:
+        parts = [part.strip() for part in re.split(r"\s*/\s*", line) if part.strip()]
+        for part in parts:
+            if entries and re.match(r"^\d", part):
+                entries[-1] = f"{entries[-1]} / {part}"
+            else:
+                entries.append(part)
+    return entries
 
 
 def clean_exercise_name(entry: str) -> str:
@@ -74,35 +81,60 @@ def parse_reps_text(reps_text: str) -> list[int]:
     return [int(value) for value in re.findall(r"\d+", reps_text)]
 
 
-def parse_exercise_entry(entry: str) -> dict[str, Any]:
-    exercise = clean_exercise_name(entry)
-    weight_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:kg|キロ)", entry, flags=re.IGNORECASE)
-    weight = float(weight_match.group(1)) if weight_match else None
-    reps: list[int] = []
-    sets: int | None = None
+def parse_reps_segment(segment: str) -> list[int]:
+    reps_times_sets = re.search(r"(\d+)\s*(?:回|reps?)\s*[x×]\s*(\d+)", segment, flags=re.IGNORECASE)
+    if reps_times_sets:
+        return [int(reps_times_sets.group(1))] * int(reps_times_sets.group(2))
 
-    after_weight = entry[weight_match.end() :] if weight_match else entry
-    explicit_sets = re.search(r"(\d+)\s*(?:セット|sets?)", entry, flags=re.IGNORECASE)
-    explicit_reps = re.search(r"(\d+)\s*(?:回|reps?)", entry, flags=re.IGNORECASE)
-    repeated_set_match = re.search(r"[x×]\s*(\d+)\s*[x×]\s*(\d+)", after_weight, flags=re.IGNORECASE)
+    repeated_set_match = re.search(r"[x×]\s*(\d+)\s*[x×]\s*(\d+)", segment, flags=re.IGNORECASE)
     if repeated_set_match:
-        reps = [int(repeated_set_match.group(1))] * int(repeated_set_match.group(2))
-    elif explicit_reps:
+        return [int(repeated_set_match.group(1))] * int(repeated_set_match.group(2))
+
+    explicit_sets = re.search(r"(\d+)\s*(?:セット|sets?)", segment, flags=re.IGNORECASE)
+    explicit_reps = re.search(r"(\d+)\s*(?:回|reps?)", segment, flags=re.IGNORECASE)
+    if explicit_reps:
         reps = [int(explicit_reps.group(1))]
         if explicit_sets:
             reps = reps * int(explicit_sets.group(1))
+        return reps
+
+    return parse_reps_text(segment)
+
+
+def parse_weighted_sets(entry: str) -> list[dict[str, Any]]:
+    matches = list(re.finditer(r"(\d+(?:\.\d+)?)\s*(?:kg|キロ)", entry, flags=re.IGNORECASE))
+    work_sets: list[dict[str, Any]] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(entry)
+        segment = entry[match.end() : end]
+        reps = parse_reps_segment(segment)
+        weight = float(match.group(1))
+        work_sets.append(
+            {
+                "weight_kg": weight,
+                "reps": reps,
+                "sets": len(reps) if reps else None,
+                "total_reps": sum(reps) if reps else None,
+                "volume_kg": round(sum(rep * weight for rep in reps), 1) if reps else None,
+            }
+        )
+    return work_sets
+
+
+def parse_exercise_entry(entry: str) -> dict[str, Any]:
+    exercise = clean_exercise_name(entry)
+    work_sets = parse_weighted_sets(entry)
+    if work_sets:
+        top_set = max(work_sets, key=lambda item: item["weight_kg"])
+        weight = top_set["weight_kg"]
+        reps = top_set["reps"]
+        sets = top_set["sets"]
     else:
-        reps = parse_reps_text(after_weight)
-
-    if explicit_sets:
-        sets = int(explicit_sets.group(1))
-
-    if sets is None:
+        weight = None
+        reps = parse_reps_segment(entry)
         sets = len(reps) if reps else None
-    if reps and sets and len(reps) == 1 and sets > 1:
-        reps = reps * sets
 
-    volume = sum(rep * weight for rep in reps) if weight is not None and reps else None
+    volume = sum(work_set.get("volume_kg") or 0 for work_set in work_sets) if work_sets else None
     estimated_1rm = None
     if weight is not None and reps:
         estimated_1rm = round(max(weight * (1 + rep / 30) for rep in reps), 1)
@@ -116,6 +148,8 @@ def parse_exercise_entry(entry: str) -> dict[str, Any]:
         "total_reps": sum(reps) if reps else None,
         "volume_kg": round(volume, 1) if volume is not None else None,
         "estimated_1rm_kg": estimated_1rm,
+        "work_sets": work_sets,
+        "bodyweight": weight is None and bool(reps),
         "confidence": "high" if weight is not None and reps else "medium" if exercise != "unknown" else "low",
     }
 
@@ -138,6 +172,8 @@ def best_history_by_exercise(history: list[dict[str, Any]] | None) -> dict[str, 
 
 def weight_increment_for(exercise_name: str) -> float:
     text = exercise_name.lower()
+    if "レッグプレス" in text:
+        return 20.0
     if any(keyword in text for keyword in ["サイド", "カール", "レイズ", "dumbbell", "db"]):
         return 1.0
     return 2.5
@@ -150,23 +186,43 @@ def next_target_for(exercise: dict[str, Any], history_best: dict[str, Any] | Non
         return {"exercise": exercise["exercise"], "target": "重量と回数を記録する", "reason": "次回提案には重量と回数が必要です。"}
 
     min_reps = min(reps) if reps else 0
+    max_reps = max(reps) if reps else 0
     increment = weight_increment_for(exercise["exercise"])
-    if reps and min_reps >= 8:
+    exercise_name = exercise["exercise"]
+    if "ベンチプレス" in exercise_name and len(reps) >= 4 and min_reps >= 5:
         return {
-            "exercise": exercise["exercise"],
+            "exercise": exercise_name,
+            "target_weight_kg": weight + increment,
+            "target_reps": [5] * min(4, len(reps)),
+            "target": f"{weight + increment:g}kgで5回×4セットを狙う",
+            "reason": "ベンチプレスで5回×4セット相当を達成しているため、小さく重量を上げます。",
+        }
+    if "レッグプレス" in exercise_name and reps and min_reps >= 15:
+        return {
+            "exercise": exercise_name,
             "target_weight_kg": weight + increment,
             "target_reps": reps,
             "target": f"{weight + increment:g}kgで同じセット構成を狙う",
-            "reason": "全セットで8回以上できているため、小さく重量を上げます。",
+            "reason": "レッグプレスで高レップが揃っているため、次の重量帯を狙います。",
+        }
+    if any(keyword in exercise_name for keyword in ["カール", "EZ"]) and reps and min_reps >= 12:
+        return {
+            "exercise": exercise_name,
+            "target_weight_kg": weight + increment,
+            "target_reps": reps,
+            "target": f"{weight + increment:g}kgで同じセット構成を狙う",
+            "reason": "カール種目で12回が揃っているため、増量候補です。",
         }
 
     next_reps = [rep + 1 for rep in reps] if reps else [5]
+    if max_reps >= 10:
+        next_reps = reps
     return {
-        "exercise": exercise["exercise"],
+        "exercise": exercise_name,
         "target_weight_kg": weight,
         "target_reps": next_reps,
-        "target": f"{weight:g}kgで各セット+1回を狙う",
-        "reason": "まず同じ重量で総レップ数を伸ばします。",
+        "target": f"{weight:g}kgを維持してフォームと総レップ安定を狙う",
+        "reason": "増量前に同じ重量でセット全体を安定させます。",
     }
 
 
@@ -202,6 +258,7 @@ def analyze_workout(record: dict[str, Any], history: list[dict[str, Any]] | None
     prs = detect_prs(exercises, history_best)
     next_targets = [next_target_for(exercise, history_best.get(exercise["exercise"])) for exercise in exercises]
     parsed_exercises = [exercise for exercise in exercises if exercise["confidence"] in {"high", "medium"}]
+    performed = bool(text and parsed_exercises)
 
     if not text:
         summary = "筋トレ記録がありません。"
@@ -214,11 +271,17 @@ def analyze_workout(record: dict[str, Any], history: list[dict[str, Any]] | None
 
     return {
         "metadata": {"workout_intelligence_version": WORKOUT_INTELLIGENCE_VERSION},
+        "performed": performed,
         "summary": summary,
         "raw_text": text,
+        "exercise_count": len(parsed_exercises),
         "exercises": exercises,
         "prs": prs,
         "next_targets": next_targets,
         "progression": {"history_exercises": history_best},
+        "coach": {
+            "message": summary,
+            "next_focus": next_targets[0]["target"] if next_targets else "",
+        },
         "confidence": "high" if exercises and all(item["confidence"] == "high" for item in exercises) else "medium" if exercises else "low",
     }
