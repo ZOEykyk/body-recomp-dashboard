@@ -16,6 +16,7 @@ from workout_intelligence import analyze_workout
 STEP_RANK_ORDER = ["S", "A", "B", "C", "D"]
 X_AXIS_LABEL_ANGLE = -40
 X_AXIS_LABEL_FONT_SIZE = 16
+STATIC_CHART_VERSION = "pr7.1-static-svg-v2"
 SCORE_LABELS = [
     (90, "🟢 Excellent", "#2ca02c"),
     (80, "🔵 Good", "#1f77b4"),
@@ -223,7 +224,7 @@ def render_static_bar_chart(
 
     components.html(
         f"""
-        <svg class="static-dashboard-chart" data-static-chart="true" viewBox="0 0 {width} {height}"
+        <svg class="static-dashboard-chart" data-static-chart="true" data-chart-version="{STATIC_CHART_VERSION}" viewBox="0 0 {width} {height}"
              width="100%" height="{height}" role="img" aria-label="{html.escape(y_title)} bar chart">
           <text x="{left}" y="16" font-size="13" fill="#555">{html.escape(y_title)}</text>
           {''.join(y_ticks)}
