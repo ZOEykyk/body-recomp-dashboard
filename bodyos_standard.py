@@ -315,7 +315,7 @@ def alcohol_score(alcohol: Any, detail: Any = "", level: Any = "") -> int:
 
 
 def calculate_bodyos_score(record: dict[str, Any]) -> dict[str, Any]:
-    """Calculate BodyOS Standard v1.0 daily score from a normalized or raw record."""
+    """Calculate BodyOS Standard v1.0 daily score without mutating the input record."""
     mode = normalize_mode(first_value(record, "モード", "mode", default="NORMAL"))
     workout = record.get("workout") if isinstance(record.get("workout"), dict) else {}
     trained = first_value(record, "筋トレ有無", "trained", "performed", "workout.performed", default=workout)

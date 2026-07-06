@@ -89,3 +89,5 @@ The function accepts normalized CSV-style records and future JSON-style records 
 - `components`, a nested dictionary containing the same component breakdown
 
 Future app, API, and AI Coach code should call this interface instead of reimplementing daily evaluation rules.
+
+`calculate_bodyos_score()` is a pure function. It must not mutate the input `record`; callers receive a separate evaluation result.
