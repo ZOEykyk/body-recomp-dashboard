@@ -4,6 +4,17 @@
 
 Project BodyOS は、日々の行動を同じ物差しで眺めつつ、通常日・イベント日・体調回復日を無理に同じ基準で評価しないための記録システムです。長期的には 75〜76kg を目標体重帯とし、体重だけでなく食事、タンパク質、歩数、筋トレ、睡眠、体調を含めてコンディションを管理します。
 
+## Project Documentation
+
+- [BodyOS Constitution](docs/BODYOS_CONSTITUTION.md)
+- [Development Standard](docs/DEVELOPMENT_STANDARD.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Data Standard](docs/DATA_STANDARD.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Contributing](docs/CONTRIBUTING.md)
+- [PRD Template](docs/PRD/PRD_TEMPLATE.md)
+- [ADR Template](docs/ADR/ADR_TEMPLATE.md)
+
 ## Streamlit Cloudでrecords.csvを永続化する
 
 Streamlit Cloudのファイルシステムは永続化されないため、`records.csv` はGitHub Contents APIでリポジトリ上に保存します。
