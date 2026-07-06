@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import datetime as dt
+import html
 import re
 from typing import Any, Callable
 
 import altair as alt
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from bodyos_standard import MODES, SCORE_COMPONENTS, condition_score
 from workout_intelligence import analyze_workout
 
 STEP_RANK_ORDER = ["S", "A", "B", "C", "D"]
+X_AXIS_LABEL_ANGLE = -40
+X_AXIS_LABEL_FONT_SIZE = 16
 SCORE_LABELS = [
     (90, "🟢 Excellent", "#2ca02c"),
     (80, "🔵 Good", "#1f77b4"),
@@ -60,7 +64,9 @@ def count_bench_90kg_sets(training_detail: Any) -> int:
 
 
 def weekly_label(series: pd.Series) -> pd.Series:
-    return series.dt.to_period("W-SUN").apply(lambda period: f"{period.start_time:%Y/%m/%d}週")
+    return series.dt.to_period("W-SUN").apply(
+        lambda period: f"{period.start_time.month}/{period.start_time.day}〜{period.end_time.month}/{period.end_time.day}"
+    )
 
 
 def score_label(score: Any) -> str:
@@ -76,6 +82,10 @@ def score_color_scale() -> alt.Scale:
         domain=[label for _threshold, label, _color in SCORE_LABELS],
         range=[color for _threshold, _label, color in SCORE_LABELS],
     )
+
+
+def dashboard_x_axis(title: str) -> alt.Axis:
+    return alt.Axis(title=title, labelAngle=X_AXIS_LABEL_ANGLE, labelFontSize=X_AXIS_LABEL_FONT_SIZE)
 
 
 def add_daily_display_columns(data: pd.DataFrame) -> pd.DataFrame:
@@ -95,7 +105,7 @@ def ordered_daily_x(data: pd.DataFrame) -> alt.X:
     return alt.X(
         "Daily Label:N",
         sort=list(data["Daily Label"]),
-        axis=alt.Axis(title="日付", labelAngle=-45),
+        axis=dashboard_x_axis("日付"),
     )
 
 
@@ -139,6 +149,92 @@ def body_score_chart(data: pd.DataFrame) -> alt.LayerChart:
         tooltip=["日付表示", alt.Tooltip("7日平均Body Score:Q", format=".1f")],
     )
     return (score_line + average_line + score_points).properties(height=320)
+
+
+def step_rank_distribution_data(data: pd.DataFrame) -> pd.DataFrame:
+    return (
+        data["歩数ランク"]
+        .value_counts()
+        .reindex(STEP_RANK_ORDER, fill_value=0)
+        .rename_axis("歩数ランク")
+        .reset_index(name="日数")
+    )
+
+
+def weekly_workout_count_data(
+    chart_df: pd.DataFrame,
+    training_counted: Callable[[dict[str, Any] | pd.Series], bool],
+) -> pd.DataFrame:
+    return (
+        chart_df.assign(筋トレ回数=chart_df.apply(training_counted, axis=1).astype(int))
+        .groupby("週", sort=False)["筋トレ回数"]
+        .sum()
+        .reset_index()
+    )
+
+
+def render_static_bar_chart(
+    chart_data: pd.DataFrame,
+    label_column: str,
+    value_column: str,
+    color: str,
+    y_title: str,
+) -> None:
+    width = 900
+    height = 340
+    left = 48
+    right = 24
+    top = 28
+    bottom = 88
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+    count = max(len(chart_data), 1)
+    max_value = max(float(chart_data[value_column].max()), 1.0)
+    slot_width = plot_width / count
+    bar_width = min(slot_width * 0.48, 58)
+
+    bars: list[str] = []
+    y_ticks: list[str] = []
+    for tick in range(int(max_value) + 1):
+        y = top + plot_height - (tick / max_value) * plot_height
+        y_ticks.append(
+            f"""
+            <line x1="{left}" y1="{y:.1f}" x2="{width - right}" y2="{y:.1f}" stroke="#f0f0f0" />
+            <text x="{left - 10}" y="{y + 4:.1f}" text-anchor="end" font-size="12" fill="#666">{tick}</text>
+            """
+        )
+
+    for index, row in enumerate(chart_data.to_dict("records")):
+        label = str(row[label_column])
+        value = int(row[value_column])
+        bar_height = (value / max_value) * plot_height if value > 0 else 0
+        x_center = left + slot_width * index + slot_width / 2
+        x = x_center - bar_width / 2
+        y = top + plot_height - bar_height
+        label_y = top + plot_height + 34
+        bars.append(
+            f"""
+            <rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" height="{bar_height:.1f}" fill="{color}" rx="3" />
+            <text x="{x_center:.1f}" y="{y - 8:.1f}" text-anchor="middle" font-size="14" fill="#333">{value}</text>
+            <text x="{x_center:.1f}" y="{label_y:.1f}" text-anchor="end" font-size="{X_AXIS_LABEL_FONT_SIZE}" fill="#333"
+                  transform="rotate({X_AXIS_LABEL_ANGLE} {x_center:.1f} {label_y:.1f})">{html.escape(label)}</text>
+            """
+        )
+
+    components.html(
+        f"""
+        <svg class="static-dashboard-chart" data-static-chart="true" viewBox="0 0 {width} {height}"
+             width="100%" height="{height}" role="img" aria-label="{html.escape(y_title)} bar chart">
+          <text x="{left}" y="16" font-size="13" fill="#555">{html.escape(y_title)}</text>
+          {''.join(y_ticks)}
+          <line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_height}" stroke="#d9d9d9" />
+          <line x1="{left}" y1="{top + plot_height}" x2="{width - right}" y2="{top + plot_height}" stroke="#d9d9d9" />
+          {''.join(bars)}
+        </svg>
+        """,
+        height=height,
+        scrolling=False,
+    )
 
 
 def render_workout_intelligence(latest: pd.Series, data: pd.DataFrame) -> None:
@@ -286,16 +382,16 @@ def render_dashboard(
     st.altair_chart(daily_bar_chart(chart_df, "歩数", "歩数", "#4c78a8"), use_container_width=True)
 
     st.subheader("歩数ランク別の日数")
-    step_rank_counts = data["歩数ランク"].value_counts().reindex(STEP_RANK_ORDER, fill_value=0)
-    st.bar_chart(step_rank_counts)
+    render_static_bar_chart(step_rank_distribution_data(data), "歩数ランク", "日数", "#4c78a8", "日数")
 
     st.subheader("週ごとの筋トレ回数")
-    weekly_training = (
-        chart_df.assign(筋トレ回数=chart_df.apply(training_counted, axis=1).astype(int))
-        .groupby("週")["筋トレ回数"]
-        .sum()
+    render_static_bar_chart(
+        weekly_workout_count_data(chart_df, training_counted),
+        "週",
+        "筋トレ回数",
+        "#9467bd",
+        "筋トレ回数",
     )
-    st.bar_chart(weekly_training)
 
     st.subheader("ベンチプレス90kgセット数の推移")
     st.altair_chart(daily_line_chart(chart_df, "ベンチプレス90kgセット数", "90kgセット数", "#9467bd"), use_container_width=True)
