@@ -9,6 +9,7 @@
 - PR6.1 Workout normalization
 - PR6.2 Calorie Intelligence
 - PR6.3 BodyOS Standard v1.0
+- PR6.4 Dashboard Refactoring v1
 
 ## Milestone M2 Intelligence
 

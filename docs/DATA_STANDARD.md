@@ -4,6 +4,8 @@
 
 `records.csv` is the current source of truth. All import, dashboard, scoring, and recalculation logic must preserve compatibility with existing CSV records.
 
+`dashboard.py` is a rendering layer only. It may derive display columns such as labels, rolling averages, and chart helper fields at runtime, but it must not introduce required CSV columns or change the stored record contract.
+
 ## Standard JSON Import Shape
 
 Future ChatGPT logs should move toward this shape:

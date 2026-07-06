@@ -96,6 +96,17 @@ Body Scoreの表示ラベル:
 
 ChatGPT JSONログでは `body_score`, `Body Score`, `total_score`, `体重スコア`, `食事スコア`, `タンパク質スコア`, `歩数スコア`, `筋トレスコア`, `睡眠スコア`, `体調スコア`, `飲酒スコア` も受け付けますが、省略推奨です。
 
+## Dashboard Layer
+
+Streamlitアプリの高レベルな流れは `app.py` が担当し、ダッシュボードの描画は `dashboard.py` に分離しています。
+
+- `app.py`: ページ設定、データ読み込み、CSV保存、GitHub保存、手入力フォーム、ChatGPT JSON取り込み
+- `dashboard.py`: メトリクス、Body Scoreチャート、日次チャート、Workout Intelligence表示、直近詳細、履歴テーブル
+- `bodyos_standard.py`: `calculate_bodyos_score(record)` による評価
+- `workout_intelligence.py`: `analyze_workout(record, history=None)` による筋トレ解析
+
+この分離は保守性のためのリファクタリングで、CSVスキーマ、JSON取り込み、Body Score計算、カロリー推定、Workout Intelligenceの公開インターフェースは変更しません。
+
 ## ChatGPT JSONログ形式
 
 アプリの「ChatGPTログ貼り付け」欄には、1日分のJSONオブジェクト、または複数日分のJSON配列を貼り付けます。同じ日付の記録が既にある場合は上書きし、なければ追加します。
