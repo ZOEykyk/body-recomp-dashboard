@@ -19,6 +19,8 @@ Food parser / calorie estimator
 ↓
 Workout normalizer
 ↓
+Workout Intelligence
+↓
 CSV storage
 ↓
 Dashboard
@@ -36,6 +38,7 @@ Body Score / Coach feedback
 - `brand_dictionary.json`: Brand and convenience food calorie estimates.
 - `restaurant_dictionary.json`: Restaurant-specific calorie estimates.
 - `bodyos_standard.py`: Reusable BodyOS Standard v1.0 rule engine for daily scoring.
+- `workout_intelligence.py`: Reusable Workout Intelligence v1 parser and training feedback engine.
 - `README.md`: User-facing setup and feature documentation.
 - `docs/`: Product, architecture, data, and development standards.
 
@@ -49,9 +52,10 @@ The current storage model is CSV-first. Locally, records are saved to `records.c
 2. Input is normalized into BodyOS columns.
 3. Meals are parsed and calories are estimated unless explicit or manual calories are provided.
 4. Workout fields are normalized for consistent training counts.
-5. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
-6. Record is saved to CSV.
-7. Dashboard reads normalized records and renders metrics, charts, and recent details.
+5. Workout Intelligence parses workout text for insights without changing the CSV schema.
+6. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
+7. Record is saved to CSV.
+8. Dashboard reads normalized records and renders metrics, charts, and recent details.
 
 ## Future Architecture
 

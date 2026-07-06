@@ -72,6 +72,18 @@ Future ChatGPT logs should move toward this shape:
 
 Body Score should be recalculable from stored records. Imported manual Body Score values may be preserved separately, but current dashboard logic should prefer the app's latest calculated score when recalculating.
 
+## Workout Intelligence Data Rules
+
+`workout_intelligence.py` defines Workout Intelligence v1. The public interface is:
+
+```python
+analyze_workout(record: dict, history: list[dict] | None = None) -> dict
+```
+
+The function reads existing workout text fields such as `筋トレ内容`, `workout.menu`, and `workout_detail`. It must not change the stored CSV schema.
+
+The result may include parsed exercises, PR candidates, next targets, progression context, confidence, and a short summary. Workout parsing is approximate and should preserve the raw workout text as the source of truth.
+
 ## BodyOS Standard v1.0
 
 `bodyos_standard.py` defines the first reusable BodyOS rule engine. The public scoring interface is:
