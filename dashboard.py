@@ -12,6 +12,8 @@ from bodyos_standard import MODES, SCORE_COMPONENTS, condition_score
 from workout_intelligence import analyze_workout
 
 STEP_RANK_ORDER = ["S", "A", "B", "C", "D"]
+X_AXIS_LABEL_ANGLE = -45
+X_AXIS_LABEL_FONT_SIZE = 13
 SCORE_LABELS = [
     (90, "🟢 Excellent", "#2ca02c"),
     (80, "🔵 Good", "#1f77b4"),
@@ -60,7 +62,9 @@ def count_bench_90kg_sets(training_detail: Any) -> int:
 
 
 def weekly_label(series: pd.Series) -> pd.Series:
-    return series.dt.to_period("W-SUN").apply(lambda period: f"{period.start_time:%Y/%m/%d}週")
+    return series.dt.to_period("W-SUN").apply(
+        lambda period: f"{period.start_time.month}/{period.start_time.day}〜{period.end_time.month}/{period.end_time.day}"
+    )
 
 
 def score_label(score: Any) -> str:
@@ -76,6 +80,10 @@ def score_color_scale() -> alt.Scale:
         domain=[label for _threshold, label, _color in SCORE_LABELS],
         range=[color for _threshold, _label, color in SCORE_LABELS],
     )
+
+
+def dashboard_x_axis(title: str) -> alt.Axis:
+    return alt.Axis(title=title, labelAngle=X_AXIS_LABEL_ANGLE, labelFontSize=X_AXIS_LABEL_FONT_SIZE)
 
 
 def add_daily_display_columns(data: pd.DataFrame) -> pd.DataFrame:
@@ -95,7 +103,7 @@ def ordered_daily_x(data: pd.DataFrame) -> alt.X:
     return alt.X(
         "Daily Label:N",
         sort=list(data["Daily Label"]),
-        axis=alt.Axis(title="日付", labelAngle=-45),
+        axis=dashboard_x_axis("日付"),
     )
 
 
@@ -139,6 +147,48 @@ def body_score_chart(data: pd.DataFrame) -> alt.LayerChart:
         tooltip=["日付表示", alt.Tooltip("7日平均Body Score:Q", format=".1f")],
     )
     return (score_line + average_line + score_points).properties(height=320)
+
+
+def step_rank_distribution_chart(data: pd.DataFrame) -> alt.Chart:
+    chart_data = (
+        data["歩数ランク"]
+        .value_counts()
+        .reindex(STEP_RANK_ORDER, fill_value=0)
+        .rename_axis("歩数ランク")
+        .reset_index(name="日数")
+    )
+    return (
+        alt.Chart(chart_data)
+        .mark_bar(color="#4c78a8")
+        .encode(
+            x=alt.X("歩数ランク:N", sort=STEP_RANK_ORDER, axis=dashboard_x_axis("歩数ランク")),
+            y=alt.Y("日数:Q", title="日数"),
+            tooltip=["歩数ランク", "日数"],
+        )
+        .properties(height=300)
+    )
+
+
+def weekly_workout_count_chart(
+    chart_df: pd.DataFrame,
+    training_counted: Callable[[dict[str, Any] | pd.Series], bool],
+) -> alt.Chart:
+    weekly_training = (
+        chart_df.assign(筋トレ回数=chart_df.apply(training_counted, axis=1).astype(int))
+        .groupby("週", sort=False)["筋トレ回数"]
+        .sum()
+        .reset_index()
+    )
+    return (
+        alt.Chart(weekly_training)
+        .mark_bar(color="#9467bd")
+        .encode(
+            x=alt.X("週:N", sort=list(weekly_training["週"]), axis=dashboard_x_axis("週")),
+            y=alt.Y("筋トレ回数:Q", title="筋トレ回数"),
+            tooltip=["週", "筋トレ回数"],
+        )
+        .properties(height=300)
+    )
 
 
 def render_workout_intelligence(latest: pd.Series, data: pd.DataFrame) -> None:
@@ -286,16 +336,10 @@ def render_dashboard(
     st.altair_chart(daily_bar_chart(chart_df, "歩数", "歩数", "#4c78a8"), use_container_width=True)
 
     st.subheader("歩数ランク別の日数")
-    step_rank_counts = data["歩数ランク"].value_counts().reindex(STEP_RANK_ORDER, fill_value=0)
-    st.bar_chart(step_rank_counts)
+    st.altair_chart(step_rank_distribution_chart(data), use_container_width=True)
 
     st.subheader("週ごとの筋トレ回数")
-    weekly_training = (
-        chart_df.assign(筋トレ回数=chart_df.apply(training_counted, axis=1).astype(int))
-        .groupby("週")["筋トレ回数"]
-        .sum()
-    )
-    st.bar_chart(weekly_training)
+    st.altair_chart(weekly_workout_count_chart(chart_df, training_counted), use_container_width=True)
 
     st.subheader("ベンチプレス90kgセット数の推移")
     st.altair_chart(daily_line_chart(chart_df, "ベンチプレス90kgセット数", "90kgセット数", "#9467bd"), use_container_width=True)
