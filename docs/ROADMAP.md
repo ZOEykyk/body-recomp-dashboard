@@ -8,7 +8,7 @@
 
 - PR6.1 Workout normalization
 - PR6.2 Calorie Intelligence
-- PR6.3 BodyOS Standard
+- PR6.3 BodyOS Standard v1.0
 
 ## Milestone M2 Intelligence
 

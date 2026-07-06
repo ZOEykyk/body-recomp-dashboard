@@ -23,6 +23,8 @@ CSV storage
 ↓
 Dashboard
 ↓
+BodyOS Standard rule engine
+↓
 Body Score / Coach feedback
 ```
 
@@ -33,6 +35,7 @@ Body Score / Coach feedback
 - `food_dictionary.json`: General food calorie estimates.
 - `brand_dictionary.json`: Brand and convenience food calorie estimates.
 - `restaurant_dictionary.json`: Restaurant-specific calorie estimates.
+- `bodyos_standard.py`: Reusable BodyOS Standard v1.0 rule engine for daily scoring.
 - `README.md`: User-facing setup and feature documentation.
 - `docs/`: Product, architecture, data, and development standards.
 
@@ -46,7 +49,7 @@ The current storage model is CSV-first. Locally, records are saved to `records.c
 2. Input is normalized into BodyOS columns.
 3. Meals are parsed and calories are estimated unless explicit or manual calories are provided.
 4. Workout fields are normalized for consistent training counts.
-5. Body Score is calculated from current rules.
+5. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
 6. Record is saved to CSV.
 7. Dashboard reads normalized records and renders metrics, charts, and recent details.
 

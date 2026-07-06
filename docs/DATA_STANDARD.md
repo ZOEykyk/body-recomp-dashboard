@@ -71,3 +71,21 @@ Future ChatGPT logs should move toward this shape:
 ## Body Score Data Rules
 
 Body Score should be recalculable from stored records. Imported manual Body Score values may be preserved separately, but current dashboard logic should prefer the app's latest calculated score when recalculating.
+
+## BodyOS Standard v1.0
+
+`bodyos_standard.py` defines the first reusable BodyOS rule engine. The public scoring interface is:
+
+```python
+calculate_bodyos_score(record: dict) -> dict
+```
+
+The function accepts normalized CSV-style records and future JSON-style records where practical. It returns:
+
+- `bodyos_standard_version`
+- normalized `mode`
+- `Body Score`
+- score component columns such as `体重スコア`, `食事スコア`, and `飲酒スコア`
+- `components`, a nested dictionary containing the same component breakdown
+
+Future app, API, and AI Coach code should call this interface instead of reimplementing daily evaluation rules.
