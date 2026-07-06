@@ -16,6 +16,7 @@ from workout_intelligence import analyze_workout
 STEP_RANK_ORDER = ["S", "A", "B", "C", "D"]
 X_AXIS_LABEL_ANGLE = -40
 X_AXIS_LABEL_FONT_SIZE = 16
+STATIC_CHART_VERSION = "pr7.1-static-svg-v3"
 SCORE_LABELS = [
     (90, "🟢 Excellent", "#2ca02c"),
     (80, "🔵 Good", "#1f77b4"),
@@ -85,7 +86,20 @@ def score_color_scale() -> alt.Scale:
 
 
 def dashboard_x_axis(title: str) -> alt.Axis:
-    return alt.Axis(title=title, labelAngle=X_AXIS_LABEL_ANGLE, labelFontSize=X_AXIS_LABEL_FONT_SIZE)
+    return alt.Axis(
+        title=title,
+        labelAngle=X_AXIS_LABEL_ANGLE,
+        labelFontSize=X_AXIS_LABEL_FONT_SIZE,
+        labelLimit=140,
+    )
+
+
+def apply_dashboard_axis_config(chart: alt.Chart | alt.LayerChart) -> alt.Chart | alt.LayerChart:
+    return chart.configure_axisX(
+        labelAngle=X_AXIS_LABEL_ANGLE,
+        labelFontSize=X_AXIS_LABEL_FONT_SIZE,
+        labelLimit=140,
+    )
 
 
 def add_daily_display_columns(data: pd.DataFrame) -> pd.DataFrame:
@@ -181,11 +195,11 @@ def render_static_bar_chart(
     y_title: str,
 ) -> None:
     width = 900
-    height = 340
+    height = 430
     left = 48
     right = 24
     top = 28
-    bottom = 88
+    bottom = 150
     plot_width = width - left - right
     plot_height = height - top - bottom
     count = max(len(chart_data), 1)
@@ -211,7 +225,7 @@ def render_static_bar_chart(
         x_center = left + slot_width * index + slot_width / 2
         x = x_center - bar_width / 2
         y = top + plot_height - bar_height
-        label_y = top + plot_height + 34
+        label_y = top + plot_height + 58
         bars.append(
             f"""
             <rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" height="{bar_height:.1f}" fill="{color}" rx="3" />
@@ -223,7 +237,7 @@ def render_static_bar_chart(
 
     components.html(
         f"""
-        <svg class="static-dashboard-chart" data-static-chart="true" viewBox="0 0 {width} {height}"
+        <svg class="static-dashboard-chart" data-static-chart="true" data-chart-version="{STATIC_CHART_VERSION}" viewBox="0 0 {width} {height}"
              width="100%" height="{height}" role="img" aria-label="{html.escape(y_title)} bar chart">
           <text x="{left}" y="16" font-size="13" fill="#555">{html.escape(y_title)}</text>
           {''.join(y_ticks)}
@@ -232,7 +246,7 @@ def render_static_bar_chart(
           {''.join(bars)}
         </svg>
         """,
-        height=height,
+        height=height + 12,
         scrolling=False,
     )
 
@@ -331,7 +345,7 @@ def render_dashboard(
         metric.metric(f"{mode_name}の日数", f"{int(mode_counts[mode_name])}日")
 
     st.subheader("Body Score推移")
-    st.altair_chart(body_score_chart(chart_df), use_container_width=True)
+    st.altair_chart(apply_dashboard_axis_config(body_score_chart(chart_df)), use_container_width=True)
 
     st.subheader("各スコア内訳の推移")
     score_component_chart = (
@@ -352,7 +366,7 @@ def render_dashboard(
         )
         .properties(height=280)
     )
-    st.altair_chart(score_component_chart, use_container_width=True)
+    st.altair_chart(apply_dashboard_axis_config(score_component_chart), use_container_width=True)
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("今週の平均体重", f"{this_week['体重'].mean():.1f}kg" if not this_week.empty else "-")
@@ -373,13 +387,16 @@ def render_dashboard(
     weight_chart = daily_line_chart(chart_df, "体重", "体重(kg)", "#1f77b4") + daily_line_chart(
         chart_df, "7日平均体重", "7日平均体重(kg)", "#888888"
     ).mark_line(strokeDash=[5, 4], color="#888888")
-    st.altair_chart(weight_chart.properties(height=300), use_container_width=True)
+    st.altair_chart(apply_dashboard_axis_config(weight_chart.properties(height=300)), use_container_width=True)
 
     st.subheader("摂取カロリー推移")
-    st.altair_chart(daily_bar_chart(chart_df, "推定摂取カロリー", "推定摂取カロリー(kcal)", "#59a14f"), use_container_width=True)
+    st.altair_chart(
+        apply_dashboard_axis_config(daily_bar_chart(chart_df, "推定摂取カロリー", "推定摂取カロリー(kcal)", "#59a14f")),
+        use_container_width=True,
+    )
 
     st.subheader("歩数推移")
-    st.altair_chart(daily_bar_chart(chart_df, "歩数", "歩数", "#4c78a8"), use_container_width=True)
+    st.altair_chart(apply_dashboard_axis_config(daily_bar_chart(chart_df, "歩数", "歩数", "#4c78a8")), use_container_width=True)
 
     st.subheader("歩数ランク別の日数")
     render_static_bar_chart(step_rank_distribution_data(data), "歩数ランク", "日数", "#4c78a8", "日数")
@@ -394,7 +411,10 @@ def render_dashboard(
     )
 
     st.subheader("ベンチプレス90kgセット数の推移")
-    st.altair_chart(daily_line_chart(chart_df, "ベンチプレス90kgセット数", "90kgセット数", "#9467bd"), use_container_width=True)
+    st.altair_chart(
+        apply_dashboard_axis_config(daily_line_chart(chart_df, "ベンチプレス90kgセット数", "90kgセット数", "#9467bd")),
+        use_container_width=True,
+    )
 
     render_workout_intelligence(latest, data)
     render_recent_details(latest)
