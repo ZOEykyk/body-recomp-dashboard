@@ -22,6 +22,7 @@ from bodyos_standard import (
     condition_score,
     normalize_mode,
 )
+from workout_intelligence import analyze_workout
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
@@ -1258,6 +1259,19 @@ else:
 
     st.subheader("ベンチプレス90kgセット数の推移")
     st.altair_chart(daily_line_chart(chart_df, "ベンチプレス90kgセット数", "90kgセット数", "#9467bd"), use_container_width=True)
+
+    st.subheader("Workout Intelligence")
+    workout_history = df.iloc[:-1].to_dict("records") if len(df) > 1 else []
+    workout_insight = analyze_workout(latest.to_dict(), history=workout_history)
+    st.write(workout_insight["summary"])
+    if workout_insight["prs"]:
+        for pr in workout_insight["prs"][:3]:
+            previous = f" / previous {pr['previous_best']:g}{pr['unit']}" if pr["previous_best"] else ""
+            st.write(f"- {pr['exercise']}: {pr['label']} {pr['value']:g}{pr['unit']}{previous}")
+    if workout_insight["next_targets"]:
+        st.caption("次回ターゲット")
+        for target in workout_insight["next_targets"][:3]:
+            st.write(f"- {target['exercise']}: {target['target']}")
 
     st.subheader("直近の食事・筋トレ内容")
     st.write(f"朝: {latest.get('朝', '')} / {int(latest.get('朝カロリー(kcal)', 0)):,}kcal")
