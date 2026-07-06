@@ -2,7 +2,7 @@
 
 ## Current Architecture
 
-BodyOS currently uses a Streamlit single-app architecture. This is appropriate for the foundation phase because it keeps iteration fast, makes local validation simple, and preserves a small operational surface.
+BodyOS currently uses a Streamlit-first architecture. This is appropriate for the foundation phase because it keeps iteration fast, makes local validation simple, and preserves a small operational surface.
 
 ```text
 User
@@ -23,7 +23,7 @@ Workout Intelligence
 ↓
 CSV storage
 ↓
-Dashboard
+Dashboard renderer
 ↓
 BodyOS Standard rule engine
 ↓
@@ -32,7 +32,8 @@ Body Score / Coach feedback
 
 ## Main Components
 
-- `app.py`: Streamlit UI, import flow, normalization, scoring, charts, CSV persistence, and GitHub-backed storage.
+- `app.py`: Streamlit page setup, input forms, JSON import flow, normalization, CSV persistence, GitHub-backed storage, and high-level orchestration.
+- `dashboard.py`: Dashboard rendering layer for metrics, charts, summaries, recent details, history tables, and Workout Intelligence display.
 - `records.csv`: Current source of truth for user records.
 - `food_dictionary.json`: General food calorie estimates.
 - `brand_dictionary.json`: Brand and convenience food calorie estimates.
@@ -55,7 +56,27 @@ The current storage model is CSV-first. Locally, records are saved to `records.c
 5. Workout Intelligence parses workout text for insights without changing the CSV schema.
 6. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
 7. Record is saved to CSV.
-8. Dashboard reads normalized records and renders metrics, charts, and recent details.
+8. `app.py` passes normalized records to `dashboard.py`.
+9. `dashboard.py` renders metrics, charts, Workout Intelligence, and recent details.
+
+## Dashboard Layer
+
+The dashboard layer is intentionally separated from app orchestration:
+
+```text
+app.py
+↓
+dashboard.py
+↓
+bodyos_standard.py / workout_intelligence.py
+```
+
+- `app.py` orchestrates page setup, data loading, data saving, imports, and user input.
+- `dashboard.py` renders visual summaries and calls stable analysis interfaces.
+- `bodyos_standard.py` evaluates daily BodyOS scores.
+- `workout_intelligence.py` analyzes workout detail text.
+
+This separation keeps future intelligence work safer by allowing scoring and workout analysis to evolve behind stable interfaces while the Streamlit app remains a thin coordinator.
 
 ## Future Architecture
 
