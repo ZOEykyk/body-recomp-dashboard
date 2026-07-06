@@ -320,24 +320,71 @@ def calculate_bodyos_score(record: dict[str, Any]) -> dict[str, Any]:
     workout = record.get("workout") if isinstance(record.get("workout"), dict) else {}
     trained = first_value(record, "筋トレ有無", "trained", "performed", "workout.performed", default=workout)
     calories = first_value(record, "推定摂取カロリー", "calories", "kcal", "total_kcal", default=0)
+    steps_value = parse_number(first_value(record, "歩数", "steps", default=0))
+    sleep_hours = parse_number(first_value(record, "睡眠時間", "sleep", "sleep_hours", default=0))
+    condition = first_value(record, "体調", "condition", "health", default="")
+    alcohol = first_value(record, "飲酒", "alcohol", "drinking", "drank_alcohol", default="")
+    alcohol_detail = first_value(record, "飲酒内容", "alcohol_detail", default="")
+    alcohol_level = first_value(record, "飲酒レベル", "alcohol_level", "drinking_level", default="")
 
     components = {
         "体重スコア": weight_score(parse_number(first_value(record, "体重", "weight", "weight_kg", default=0)), mode),
         "食事スコア": calorie_score(parse_number(calories, default=0), mode),
         "タンパク質スコア": protein_score_from_text(meal_text(record)),
-        "歩数スコア": steps_score(parse_number(first_value(record, "歩数", "steps", default=0)), mode),
+        "歩数スコア": steps_score(steps_value, mode),
         "筋トレスコア": training_score(trained, mode),
-        "睡眠スコア": sleep_score(parse_number(first_value(record, "睡眠時間", "sleep", "sleep_hours", default=0)), mode),
-        "体調スコア": health_score(first_value(record, "体調", "condition", "health", default=""), mode),
-        "飲酒スコア": alcohol_score(
-            first_value(record, "飲酒", "alcohol", "drinking", "drank_alcohol", default=""),
-            first_value(record, "飲酒内容", "alcohol_detail", default=""),
-            first_value(record, "飲酒レベル", "alcohol_level", "drinking_level", default=""),
-        ),
+        "睡眠スコア": sleep_score(sleep_hours, mode),
+        "体調スコア": health_score(condition, mode),
+        "飲酒スコア": alcohol_score(alcohol, alcohol_detail, alcohol_level),
     }
     total = sum(components.values())
+    alcohol_level_name = alcohol_level_from_text(alcohol, alcohol_detail, alcohol_level)
+    did_train = normalize_yes_no(trained) == "あり"
+
+    evaluation = {
+        "metadata": {
+            "bodyos_standard_version": BODYOS_STANDARD_VERSION,
+            "mode": mode,
+            "pure_function": True,
+        },
+        "overall": {
+            "score": total,
+            "max_score": 100,
+            "components": components,
+        },
+        "steps": {
+            "value": steps_value,
+            "score": components["歩数スコア"],
+        },
+        "sleep": {
+            "hours": sleep_hours,
+            "score": components["睡眠スコア"],
+        },
+        "nutrition": {
+            "calories": parse_number(calories, default=0),
+            "score": components["食事スコア"],
+            "protein_score": components["タンパク質スコア"],
+        },
+        "workout": {
+            "performed": did_train,
+            "score": components["筋トレスコア"],
+        },
+        "recovery": {
+            "condition": condition,
+            "condition_score": components["体調スコア"],
+            "alcohol_level": alcohol_level_name,
+            "alcohol_score": components["飲酒スコア"],
+            "score": components["体調スコア"] + components["飲酒スコア"],
+        },
+        "coach": {
+            "comment": first_value(record, "コメント", "comment", "coach_comment", default=""),
+            "signals": [],
+        },
+    }
 
     return {
+        **evaluation,
+        # Compatibility fields for the current Streamlit app and records.csv columns.
         "bodyos_standard_version": BODYOS_STANDARD_VERSION,
         "mode": mode,
         "components": components,

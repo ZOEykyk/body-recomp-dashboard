@@ -82,6 +82,17 @@ calculate_bodyos_score(record: dict) -> dict
 
 The function accepts normalized CSV-style records and future JSON-style records where practical. It returns:
 
+- `metadata`
+- `overall`
+- `steps`
+- `sleep`
+- `nutrition`
+- `workout`
+- `recovery`
+- `coach`
+
+For current Streamlit and CSV compatibility, the result also includes top-level compatibility fields:
+
 - `bodyos_standard_version`
 - normalized `mode`
 - `Body Score`
