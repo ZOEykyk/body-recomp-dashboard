@@ -2,6 +2,8 @@
 
 ボディリコンプ管理システム。食事、体重、歩数、睡眠、筋トレ、体調を記録し、減量と筋力維持の進捗を可視化します。
 
+Project BodyOS は、日々の行動を同じ物差しで眺めつつ、通常日・イベント日・体調回復日を無理に同じ基準で評価しないための記録システムです。長期的には 75〜76kg を目標体重帯とし、体重だけでなく食事、タンパク質、歩数、筋トレ、睡眠、体調を含めてコンディションを管理します。
+
 ## Streamlit Cloudでrecords.csvを永続化する
 
 Streamlit Cloudのファイルシステムは永続化されないため、`records.csv` はGitHub Contents APIでリポジトリ上に保存します。
@@ -39,6 +41,48 @@ RECORDS_CSV_PATH = "records.csv"
 
 正確さが重要な日は、各食事のカロリー手入力欄、またはChatGPTログ内の明示的なカロリー値を使ってください。
 
+## Mode
+
+毎日の記録には `モード` と `イベント名` を保存できます。
+
+- `NORMAL`: 通常日。食事、歩数、筋トレ、睡眠を通常基準で評価します。
+- `EVENT`: 焼肉、飲み会、旅行、デートなど。食事の減点を少し緩め、イベントを楽しみつつ暴食を避けられたかを評価します。
+- `RECOVERY`: 体調不良、二日酔い、睡眠不足など。体重減少や筋トレよりも睡眠、体調回復、無理をしない判断を重視します。
+- `BULK`: 将来の増量期用。現時点では保存と簡易採点に対応しています。
+
+ChatGPT JSONログでは `mode`, `モード`, `event`, `event_name`, `イベント名` を受け付けます。
+
+## Body Score
+
+Body Score は 100点満点の総合スコアです。ChatGPT JSONログでは Body Score や各内訳スコアを省略してかまいません。アプリ側が最新ロジックで自動計算します。
+
+JSONに `body_score` / `Body Score` が含まれている場合、その値は `手動Body Score` として保存し、アプリが計算した `Body Score` と区別します。ダッシュボードや再計算では、最新ロジックによる自動計算スコアを使います。
+
+通常モードの配点目安:
+
+- 体重スコア: 15点
+- 食事スコア: 20点
+- タンパク質スコア: 15点
+- 歩数スコア: 10点
+- 筋トレスコア: 10点
+- 睡眠スコア: 10点
+- 体調スコア: 10点
+- 飲酒スコア: 10点
+
+飲酒スコアは `飲酒`, `飲酒内容`, `飲酒レベル` から推定します。飲酒なしは減点なし、軽い飲酒は小さく減点、通常飲酒は中程度減点、濃いハイボール7杯など翌日に影響が出る飲酒は大きく減点します。飲酒内容を具体的に記録すると、Body Scoreの精度が上がります。
+
+ダッシュボードの「Body Scoreを再計算」ボタンを押すと、既存の `records.csv` 全レコードについて最新ロジックで `Body Score` と内訳スコアを再評価し、通常の保存先に反映します。GitHub保存を設定している場合は、GitHub上の `records.csv` も更新されます。
+
+Body Scoreの表示ラベル:
+
+- 90〜100: 🟢 Excellent
+- 80〜89: 🔵 Good
+- 70〜79: 🟡 Fair
+- 60〜69: 🟠 Needs Attention
+- 59以下: 🔴 Recovery Needed
+
+ChatGPT JSONログでは `body_score`, `Body Score`, `total_score`, `体重スコア`, `食事スコア`, `タンパク質スコア`, `歩数スコア`, `筋トレスコア`, `睡眠スコア`, `体調スコア`, `飲酒スコア` も受け付けますが、省略推奨です。
+
 ## ChatGPT JSONログ形式
 
 アプリの「ChatGPTログ貼り付け」欄には、1日分のJSONオブジェクト、または複数日分のJSON配列を貼り付けます。同じ日付の記録が既にある場合は上書きし、なければ追加します。
@@ -46,6 +90,8 @@ RECORDS_CSV_PATH = "records.csv"
 ```json
 {
   "日付": "2026-06-28",
+  "mode": "EVENT",
+  "event_name": "焼肉",
   "体重": 85.2,
   "歩数": 8200,
   "歩数ランク": "B",
@@ -60,6 +106,8 @@ RECORDS_CSV_PATH = "records.csv"
   "筋トレ内容": "ベンチプレス 90kg 5,6,6,4 / サイドレイズ 12kg 15回",
   "体調": "良い",
   "飲酒": "なし",
+  "飲酒内容": "",
+  "飲酒レベル": "なし",
   "今日の採点": 85,
   "コメント": "歩数と食事は良好。明日は睡眠を増やす。"
 }
@@ -71,6 +119,7 @@ RECORDS_CSV_PATH = "records.csv"
 [
   {
     "日付": "2026-06-28",
+    "モード": "NORMAL",
     "体重": 85.2,
     "歩数": 8200,
     "睡眠時間": 7.5,
@@ -90,7 +139,7 @@ RECORDS_CSV_PATH = "records.csv"
 ]
 ```
 
-英語キーも一部受け付けます。例: `date`, `weight`, `steps`, `sleep_hours`, `breakfast`, `lunch`, `dinner`, `snacks`, `work_drinks`, `calories`, `trained`, `workout_detail`, `condition`, `alcohol`, `score`, `comment`。
+英語キーも一部受け付けます。例: `date`, `mode`, `event`, `event_name`, `weight`, `steps`, `sleep_hours`, `breakfast`, `lunch`, `dinner`, `meal`, `snacks`, `work_drinks`, `calories`, `trained`, `workout`, `workout_detail`, `condition`, `alcohol`, `drinking`, `drank_alcohol`, `alcohol_detail`, `alcohol_level`, `drinking_level`, `score`, `body_score`, `total_score`, `comment`。
 
 筋トレ実績は `workout.performed`、`筋トレ有無`、`trained` のいずれでも取り込めます。`あり`、`true`、`yes`、`done`、`実施`、`した` は筋トレあり、`なし`、`false`、`no`、`none`、`休み`、`してない` は筋トレなしとして正規化されます。
 
