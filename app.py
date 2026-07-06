@@ -15,22 +15,19 @@ import pandas as pd
 import streamlit as st
 import altair as alt
 
+from bodyos_standard import (
+    MODES,
+    SCORE_COMPONENTS,
+    calculate_bodyos_score,
+    condition_score,
+    normalize_mode,
+)
+
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
 DEFAULT_GITHUB_REPOSITORY = "ZOEykyk/body-recomp-dashboard"
 DEFAULT_RECORDS_BRANCH = "main"
 STEP_RANK_ORDER = ["S", "A", "B", "C", "D"]
-MODES = ["NORMAL", "EVENT", "RECOVERY", "BULK"]
-SCORE_COMPONENTS = [
-    "体重スコア",
-    "食事スコア",
-    "タンパク質スコア",
-    "歩数スコア",
-    "筋トレスコア",
-    "睡眠スコア",
-    "体調スコア",
-    "飲酒スコア",
-]
 BODY_SCORE_COLUMNS = ["Body Score"] + SCORE_COMPONENTS
 SCORE_LABELS = [
     (90, "🟢 Excellent", "#2ca02c"),
@@ -255,17 +252,6 @@ JSON_KEY_ALIASES = {
     "飲酒スコア": ["飲酒スコア"],
     "コメント": ["コメント", "comment", "memo", "メモ"],
 }
-
-CONDITION_SCORES = {
-    "最高": 5,
-    "とても良い": 5,
-    "良い": 4,
-    "普通": 3,
-    "やや悪い": 2,
-    "悪い": 1,
-    "不調": 1,
-}
-
 
 st.set_page_config(page_title="ボディリコンプ管理システム", page_icon="🏋️", layout="wide")
 st.title("🏋️ ボディリコンプ管理システム")
@@ -647,204 +633,8 @@ def training_counted(row: dict[str, Any] | pd.Series) -> bool:
     return bool(substantive_training_detail(row.get("筋トレ内容")) or substantive_training_detail(row.get("筋トレ有無")))
 
 
-def normalize_mode(value: Any) -> str:
-    text = str(value or "").strip().upper()
-    mode_aliases = {
-        "通常": "NORMAL",
-        "通常日": "NORMAL",
-        "イベント": "EVENT",
-        "イベント日": "EVENT",
-        "飲み会": "EVENT",
-        "旅行": "EVENT",
-        "体調不良": "RECOVERY",
-        "二日酔い": "RECOVERY",
-        "リカバリー": "RECOVERY",
-        "増量": "BULK",
-        "増量期": "BULK",
-    }
-    if text in MODES:
-        return text
-    return mode_aliases.get(str(value or "").strip(), "NORMAL")
-
-
-def bounded_score(value: float, maximum: int) -> int:
-    return int(round(max(0, min(maximum, value))))
-
-
-def protein_score_from_text(*values: Any) -> int:
-    text = " ".join(str(value or "") for value in values)
-    keywords = [
-        "プロテイン",
-        "鶏",
-        "チキン",
-        "サラダチキン",
-        "卵",
-        "たまご",
-        "オイコス",
-        "ヨーグルト",
-        "肉",
-        "魚",
-        "鮭",
-        "ツナ",
-        "豆腐",
-        "納豆",
-        "protein",
-    ]
-    hits = sum(1 for keyword in keywords if keyword.lower() in text.lower())
-    if hits >= 3:
-        return 15
-    if hits == 2:
-        return 12
-    if hits == 1:
-        return 8
-    return 3 if text.strip() else 0
-
-
-def calorie_score(calories: float, mode: str) -> int:
-    if mode == "EVENT":
-        if 1500 <= calories <= 3200:
-            return 20
-        if calories <= 3800:
-            return 16
-        return 11
-    if mode == "RECOVERY":
-        if 1400 <= calories <= 2800:
-            return 18
-        if calories <= 3400:
-            return 14
-        return 10
-    if mode == "BULK":
-        if 2200 <= calories <= 3200:
-            return 18
-        if 1800 <= calories <= 3600:
-            return 14
-        return 10
-
-    if 1600 <= calories <= 2300:
-        return 20
-    if 2300 < calories <= 2700 or 1300 <= calories < 1600:
-        return 15
-    if 2700 < calories <= 3200:
-        return 10
-    return 6 if calories > 0 else 0
-
-
-def weight_score(weight: float, mode: str) -> int:
-    if weight <= 0:
-        return 0
-    if mode == "RECOVERY":
-        return bounded_score(14 - max(0, weight - TARGET_WEIGHT) * 0.3, 15)
-    if mode == "BULK":
-        return bounded_score(12, 15)
-    return bounded_score(15 - max(0, weight - TARGET_WEIGHT) * 0.4, 15)
-
-
-def steps_score(steps: float, mode: str) -> int:
-    if mode == "RECOVERY":
-        if steps >= 6000:
-            return 10
-        if steps >= 3000:
-            return 8
-        return 6 if steps > 0 else 4
-    if steps >= 12000:
-        return 10
-    if steps >= 10000:
-        return 9
-    if steps >= 8000:
-        return 8
-    if steps >= 6000:
-        return 6
-    return 3 if steps > 0 else 0
-
-
-def training_score(trained: Any, mode: str) -> int:
-    trained_text = normalize_yes_no(trained)
-    did_train = trained_text == "あり"
-    if mode == "RECOVERY":
-        return 10 if not did_train else 8
-    if mode == "EVENT":
-        return 10 if did_train else 7
-    if mode == "BULK":
-        return 10 if did_train else 4
-    return 10 if did_train else 0
-
-
-def sleep_score(hours: float, mode: str) -> int:
-    if mode == "RECOVERY":
-        if hours >= 8:
-            return 10
-        if hours >= 7:
-            return 8
-        if hours >= 6:
-            return 6
-        return 3 if hours > 0 else 0
-    if 7 <= hours <= 9:
-        return 10
-    if 6 <= hours < 7 or 9 < hours <= 10:
-        return 8
-    if 5 <= hours < 6:
-        return 5
-    if mode == "EVENT":
-        return 4 if hours > 0 else 0
-    return 2 if hours > 0 else 0
-
-
-def health_score(condition: Any, mode: str) -> int:
-    parsed = condition_score(condition)
-    if parsed is None:
-        return 6 if mode in {"EVENT", "RECOVERY"} else 0
-    return bounded_score(parsed, 10)
-
-
-def alcohol_level_from_text(alcohol: Any, detail: Any = "", level: Any = "") -> str:
-    combined = " ".join(str(value or "") for value in [alcohol, detail, level]).strip().lower()
-    if not combined or combined in {"なし", "無", "no", "n", "false", "0"}:
-        return "none"
-    if any(keyword in combined for keyword in ["濃い", "7杯", "8杯", "9杯", "10杯", "二日酔い", "翌日", "heavy", "high", "多量"]):
-        return "heavy"
-    if any(keyword in combined for keyword in ["通常", "普通", "3杯", "4杯", "5杯", "6杯", "medium", "middle"]):
-        return "regular"
-    if any(keyword in combined for keyword in ["軽", "少", "1杯", "2杯", "light", "low"]):
-        return "light"
-    if any(keyword in combined for keyword in ["あり", "有", "ビール", "ハイボール", "酒", "飲"]):
-        return "regular"
-    return "none"
-
-
-def alcohol_score(alcohol: Any, detail: Any = "", level: Any = "") -> int:
-    level_name = alcohol_level_from_text(alcohol, detail, level)
-    return {
-        "none": 10,
-        "light": 8,
-        "regular": 5,
-        "heavy": 2,
-    }[level_name]
-
-
-def score_from_row(row: dict[str, Any] | pd.Series) -> dict[str, int]:
-    mode = normalize_mode(row.get("モード", "NORMAL"))
-    scores = {
-        "体重スコア": weight_score(parse_number(row.get("体重"), default=0), mode),
-        "食事スコア": calorie_score(parse_number(row.get("推定摂取カロリー"), default=0), mode),
-        "タンパク質スコア": protein_score_from_text(
-            row.get("朝"),
-            row.get("昼"),
-            row.get("夜"),
-            row.get("間食"),
-            row.get("仕事中のドリンク"),
-        ),
-        "歩数スコア": steps_score(parse_number(row.get("歩数"), default=0), mode),
-        "筋トレスコア": training_score(row.get("筋トレ有無"), mode),
-        "睡眠スコア": sleep_score(parse_number(row.get("睡眠時間"), default=0), mode),
-        "体調スコア": health_score(row.get("体調"), mode),
-        "飲酒スコア": alcohol_score(row.get("飲酒"), row.get("飲酒内容"), row.get("飲酒レベル")),
-    }
-    scores["Body Score"] = sum(scores.values())
-    return scores
-
-
 def fill_body_scores(row: dict[str, Any]) -> dict[str, Any]:
-    auto_scores = score_from_row(row)
+    auto_scores = calculate_bodyos_score(row)
     manual_score = parse_number(row.get("Body Score"), default=0)
     if manual_score > 0 and parse_number(row.get("手動Body Score"), default=0) <= 0:
         row["手動Body Score"] = int(manual_score)
@@ -1098,25 +888,6 @@ def alcohol_present(value: Any) -> bool:
     if not text:
         return False
     return text not in {"なし", "無", "no", "n", "false", "0"}
-
-
-def condition_score(value: Any) -> float | None:
-    text = str(value).strip()
-    if not text:
-        return None
-
-    numeric = parse_number(text, default=None)
-    if numeric is not None and 0 <= numeric <= 100:
-        if numeric <= 5:
-            return numeric * 2
-        if numeric <= 10:
-            return numeric
-        return numeric / 10
-
-    for keyword, score in CONDITION_SCORES.items():
-        if keyword in text:
-            return float(score * 2)
-    return None
 
 
 def count_bench_90kg_sets(training_detail: Any) -> int:
