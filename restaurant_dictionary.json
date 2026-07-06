@@ -1,0 +1,29 @@
+{
+  "foods": [
+    {
+      "name": "ソーセージエッグマフィン",
+      "kcal": 468,
+      "aliases": ["sausage egg muffin"]
+    },
+    {
+      "name": "エッグマックマフィン",
+      "kcal": 310,
+      "aliases": ["egg mcmuffin"]
+    },
+    {
+      "name": "ハッシュポテト",
+      "kcal": 145,
+      "aliases": ["hash potato", "hash browns"]
+    },
+    {
+      "name": "アイスコーヒー",
+      "kcal": 10,
+      "aliases": ["iced coffee"]
+    },
+    {
+      "name": "ブラックコーヒー",
+      "kcal": 10,
+      "aliases": ["black coffee"]
+    }
+  ]
+}
