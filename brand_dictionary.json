@@ -1,0 +1,64 @@
+{
+  "foods": [
+    {
+      "name": "オイコス PRO",
+      "kcal": 100,
+      "aliases": ["オイコスPRO", "オイコス pro", "oikos pro", "オイコス"]
+    },
+    {
+      "name": "オイコス プロテインドリンク",
+      "kcal": 125,
+      "aliases": ["オイコスプロテインドリンク", "oikos protein drink"]
+    },
+    {
+      "name": "SAVAS のむヨーグルト",
+      "kcal": 150,
+      "aliases": ["SAVAS", "ザバス", "ザバス のむヨーグルト", "savas"]
+    },
+    {
+      "name": "伊藤園 理想のトマト",
+      "kcal": 70,
+      "aliases": ["理想のトマト", "トマトジュース"]
+    },
+    {
+      "name": "ジョンソンヴィル",
+      "kcal": 180,
+      "aliases": ["Johnsonville", "ジョンソンヴィル1本"]
+    },
+    {
+      "name": "Monster",
+      "kcal": 180,
+      "aliases": ["モンスター", "monster energy"]
+    },
+    {
+      "name": "ドデカミンストロング",
+      "kcal": 130,
+      "aliases": ["ドデカミン strong"]
+    },
+    {
+      "name": "カルピス500ml",
+      "kcal": 230,
+      "aliases": ["カルピス 500ml", "カルピス"]
+    },
+    {
+      "name": "BOSS 微糖ショート缶",
+      "kcal": 35,
+      "aliases": ["BOSS微糖ショート缶", "ボス微糖ショート缶", "boss bitou"]
+    },
+    {
+      "name": "Mountain Dew",
+      "kcal": 230,
+      "aliases": ["マウンテンデュー", "mountain dew"]
+    },
+    {
+      "name": "Nope",
+      "kcal": 20,
+      "aliases": ["nope"]
+    },
+    {
+      "name": "キリッとヨグ",
+      "kcal": 120,
+      "aliases": ["きりっとヨグ"]
+    }
+  ]
+}

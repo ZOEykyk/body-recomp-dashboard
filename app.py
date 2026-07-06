@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import re
+import unicodedata
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,7 @@ OPTIONAL_COLUMNS = [
     "間食カロリー(kcal)",
     "ドリンクカロリー(kcal)",
     "ベンチプレス(kg)",
+    "カロリー推定信頼度",
     "Body Score",
     "手動Body Score",
     "Body Score種別",
@@ -117,6 +119,7 @@ TEXT_COLUMNS = [
     "飲酒レベル",
     "Body Score種別",
     "コメント",
+    "カロリー推定信頼度",
 ]
 
 NUMERIC_COLUMNS = [
@@ -143,7 +146,9 @@ NUMERIC_COLUMNS = [
     "飲酒スコア",
 ]
 
-CALORIE_KEYWORDS = {
+CALORIE_CONFIDENCE_LEVELS = {"low": 0, "medium": 1, "high": 2}
+
+LEGACY_CALORIE_KEYWORDS = {
     "赤飯おにぎり": 230,
     "おにぎり": 190,
     "鮭おにぎり": 190,
@@ -192,6 +197,16 @@ CALORIE_KEYWORDS = {
     "カフェラテ": 150,
     "ビール": 200,
 }
+
+FALLBACK_DICTIONARY_FOODS = [
+    {"name": name, "kcal": kcal, "aliases": [name]} for name, kcal in LEGACY_CALORIE_KEYWORDS.items()
+]
+
+FOOD_DICTIONARY_FILES = [
+    "food_dictionary.json",
+    "brand_dictionary.json",
+    "restaurant_dictionary.json",
+]
 
 MEAL_FALLBACK = {
     "朝": 300,
@@ -344,31 +359,176 @@ def write_github_records(csv_text: str) -> None:
     github_request("PUT", github_file_url(), payload)
 
 
-def estimate_calories(text: str, meal_type: str = "") -> int:
-    """Text-based rough calorie estimate. Explicit kcal values win."""
-    if not text or not str(text).strip():
+def normalize_food_text(text: Any) -> str:
+    return unicodedata.normalize("NFKC", str(text or "")).lower()
+
+
+def load_food_dictionary() -> list[dict[str, Any]]:
+    foods: list[dict[str, Any]] = []
+    base_dir = Path(__file__).resolve().parent
+    for filename in FOOD_DICTIONARY_FILES:
+        path = base_dir / filename
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        entries = payload.get("foods", payload) if isinstance(payload, dict) else payload
+        if not isinstance(entries, list):
+            continue
+
+        for entry in entries:
+            if not isinstance(entry, dict) or "name" not in entry or "kcal" not in entry:
+                continue
+            aliases = entry.get("aliases") or []
+            if isinstance(aliases, str):
+                aliases = [aliases]
+            foods.append(
+                {
+                    "name": str(entry["name"]),
+                    "kcal": int(entry["kcal"]),
+                    "aliases": [str(alias) for alias in [entry["name"], *aliases] if str(alias).strip()],
+                }
+            )
+
+    known_aliases = {normalize_food_text(alias) for food in foods for alias in food["aliases"]}
+    for entry in FALLBACK_DICTIONARY_FOODS:
+        if normalize_food_text(entry["name"]) not in known_aliases:
+            foods.append(entry)
+
+    return foods
+
+
+FOOD_DICTIONARY = load_food_dictionary()
+
+
+def parse_meal_items(text: str) -> list[str]:
+    normalized = str(text or "")
+    normalized = re.sub(r"[()（）\[\]【】]", "、", normalized)
+    normalized = re.sub(r"[,\n\r;/／|・]+", "、", normalized)
+    items = [item.strip(" \t-:：。") for item in normalized.split("、")]
+    return [item for item in items if item]
+
+
+def quantity_for_item(item_text: str, alias: str) -> int:
+    item = normalize_food_text(item_text)
+    normalized_alias = re.escape(normalize_food_text(alias))
+    match = re.search(rf"{normalized_alias}\s*(\d+)\s*(?:個|本|杯|枚|缶|パック|袋|人前|食)", item)
+    if match:
+        return max(int(match.group(1)), 1)
+    return 1
+
+
+def best_food_match(item: str) -> tuple[dict[str, Any], str] | None:
+    normalized_item = normalize_food_text(item)
+    candidates: list[tuple[int, dict[str, Any], str]] = []
+    for food in FOOD_DICTIONARY:
+        for alias in food["aliases"]:
+            normalized_alias = normalize_food_text(alias)
+            if normalized_alias and normalized_alias in normalized_item:
+                candidates.append((len(normalized_alias), food, alias))
+    if not candidates:
+        return None
+    _, food, alias = max(candidates, key=lambda candidate: candidate[0])
+    return food, alias
+
+
+def fallback_kcal_for_unknown_items(meal_type: str, unknown_count: int) -> int:
+    if unknown_count <= 0:
         return 0
+    per_item = {
+        "朝": 120,
+        "昼": 150,
+        "夜": 150,
+        "間食": 120,
+        "仕事中のドリンク": 80,
+    }.get(meal_type, 120)
+    return unknown_count * per_item
+
+
+def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
+    """Dictionary-based rough calorie estimate with confidence metadata."""
+    if not text or not str(text).strip():
+        return {"kcal": 0, "confidence": "low", "detected_foods": [], "unknown_items": []}
 
     text = str(text)
-    lowered = text.lower()
+    lowered = normalize_food_text(text)
+    explicit_numbers = re.findall(r"(\d+)\s*kcal", lowered)
+    if explicit_numbers:
+        return {
+            "kcal": sum(int(number) for number in explicit_numbers),
+            "confidence": "high",
+            "detected_foods": ["explicit_kcal"],
+            "unknown_items": [],
+        }
+
+    items = parse_meal_items(text)
+    detected_foods: list[str] = []
+    unknown_items: list[str] = []
     total = 0
 
-    explicit_numbers = re.findall(r"(\d+)\s*kcal", lowered)
-    total += sum(int(number) for number in explicit_numbers)
-
-    for keyword, kcal in CALORIE_KEYWORDS.items():
-        count = text.count(keyword)
-        if count > 0:
-            total += count * kcal
+    for item in items:
+        match = best_food_match(item)
+        if not match:
+            unknown_items.append(item)
+            continue
+        food, alias = match
+        quantity = quantity_for_item(item, alias)
+        total += int(food["kcal"]) * quantity
+        detected_foods.append(str(food["name"]))
 
     if total == 0 and meal_type in MEAL_FALLBACK:
         total = MEAL_FALLBACK[meal_type]
+        confidence = "low"
+    else:
+        total += fallback_kcal_for_unknown_items(meal_type, len(unknown_items))
+        item_count = max(len(items), 1)
+        coverage = len(detected_foods) / item_count
+        if unknown_items:
+            confidence = "medium" if detected_foods else "low"
+        elif coverage >= 0.8:
+            confidence = "high"
+        elif coverage >= 0.4:
+            confidence = "medium"
+        else:
+            confidence = "low"
 
-    return total
+    return {
+        "kcal": int(total),
+        "confidence": confidence,
+        "detected_foods": detected_foods,
+        "unknown_items": unknown_items,
+    }
+
+
+def estimate_calories(text: str, meal_type: str = "") -> int:
+    return int(estimate_calorie_detail(text, meal_type)["kcal"])
 
 
 def final_kcal(auto_kcal: int, manual_kcal: int) -> int:
     return manual_kcal if manual_kcal > 0 else auto_kcal
+
+
+def final_confidence(auto_confidence: str, manual_kcal: int) -> str:
+    return "high" if manual_kcal > 0 else auto_confidence
+
+
+def combine_calorie_confidence(*confidences: str) -> str:
+    active = [confidence for confidence in confidences if confidence in CALORIE_CONFIDENCE_LEVELS]
+    if not active:
+        return "low"
+    return min(active, key=lambda confidence: CALORIE_CONFIDENCE_LEVELS[confidence])
+
+
+def calorie_confidence_for_entered_meals(*meal_details: tuple[Any, dict[str, Any]]) -> str:
+    confidences = [
+        str(detail["confidence"])
+        for text, detail in meal_details
+        if text is not None and str(text).strip()
+    ]
+    return combine_calorie_confidence(*confidences)
 
 
 def rank_steps(steps: Any) -> str:
@@ -788,11 +948,24 @@ def normalize_record(raw: dict[str, Any], record_number: int = 1) -> dict[str, A
     for column in ["朝", "昼", "夜", "間食", "仕事中のドリンク", "筋トレ内容", "体調", "飲酒", "飲酒内容", "飲酒レベル", "コメント"]:
         row[column] = "" if row[column] is None else str(row[column])
 
-    row["朝カロリー(kcal)"] = int(estimate_calories(row["朝"], "朝"))
-    row["昼カロリー(kcal)"] = int(estimate_calories(row["昼"], "昼"))
-    row["夜カロリー(kcal)"] = int(estimate_calories(row["夜"], "夜"))
-    row["間食カロリー(kcal)"] = int(estimate_calories(row["間食"], "間食"))
-    row["ドリンクカロリー(kcal)"] = int(estimate_calories(row["仕事中のドリンク"], "仕事中のドリンク"))
+    breakfast_detail = estimate_calorie_detail(row["朝"], "朝")
+    lunch_detail = estimate_calorie_detail(row["昼"], "昼")
+    dinner_detail = estimate_calorie_detail(row["夜"], "夜")
+    snacks_detail = estimate_calorie_detail(row["間食"], "間食")
+    drinks_detail = estimate_calorie_detail(row["仕事中のドリンク"], "仕事中のドリンク")
+
+    row["朝カロリー(kcal)"] = int(breakfast_detail["kcal"])
+    row["昼カロリー(kcal)"] = int(lunch_detail["kcal"])
+    row["夜カロリー(kcal)"] = int(dinner_detail["kcal"])
+    row["間食カロリー(kcal)"] = int(snacks_detail["kcal"])
+    row["ドリンクカロリー(kcal)"] = int(drinks_detail["kcal"])
+    row["カロリー推定信頼度"] = calorie_confidence_for_entered_meals(
+        (row["朝"], breakfast_detail),
+        (row["昼"], lunch_detail),
+        (row["夜"], dinner_detail),
+        (row["間食"], snacks_detail),
+        (row["仕事中のドリンク"], drinks_detail),
+    )
 
     estimated = parse_number_for_record("推定摂取カロリー", row["推定摂取カロリー"], errors)
     if estimated <= 0:
@@ -1103,11 +1276,24 @@ with st.form("daily_record_form"):
     submitted = st.form_submit_button("CSVに保存する")
 
 if submitted:
-    breakfast_kcal = final_kcal(estimate_calories(breakfast, "朝"), breakfast_kcal_manual)
-    lunch_kcal = final_kcal(estimate_calories(lunch, "昼"), lunch_kcal_manual)
-    dinner_kcal = final_kcal(estimate_calories(dinner, "夜"), dinner_kcal_manual)
-    snacks_kcal = final_kcal(estimate_calories(snacks, "間食"), snacks_kcal_manual)
-    drinks_kcal = final_kcal(estimate_calories(work_drinks, "仕事中のドリンク"), drinks_kcal_manual)
+    breakfast_detail = estimate_calorie_detail(breakfast, "朝")
+    lunch_detail = estimate_calorie_detail(lunch, "昼")
+    dinner_detail = estimate_calorie_detail(dinner, "夜")
+    snacks_detail = estimate_calorie_detail(snacks, "間食")
+    drinks_detail = estimate_calorie_detail(work_drinks, "仕事中のドリンク")
+
+    breakfast_kcal = final_kcal(int(breakfast_detail["kcal"]), breakfast_kcal_manual)
+    lunch_kcal = final_kcal(int(lunch_detail["kcal"]), lunch_kcal_manual)
+    dinner_kcal = final_kcal(int(dinner_detail["kcal"]), dinner_kcal_manual)
+    snacks_kcal = final_kcal(int(snacks_detail["kcal"]), snacks_kcal_manual)
+    drinks_kcal = final_kcal(int(drinks_detail["kcal"]), drinks_kcal_manual)
+    calorie_confidence = calorie_confidence_for_entered_meals(
+        (breakfast, {"confidence": final_confidence(str(breakfast_detail["confidence"]), breakfast_kcal_manual)}),
+        (lunch, {"confidence": final_confidence(str(lunch_detail["confidence"]), lunch_kcal_manual)}),
+        (dinner, {"confidence": final_confidence(str(dinner_detail["confidence"]), dinner_kcal_manual)}),
+        (snacks, {"confidence": final_confidence(str(snacks_detail["confidence"]), snacks_kcal_manual)}),
+        (work_drinks, {"confidence": final_confidence(str(drinks_detail["confidence"]), drinks_kcal_manual)}),
+    )
     estimated_calories = breakfast_kcal + lunch_kcal + dinner_kcal + snacks_kcal + drinks_kcal
 
     record = fill_body_scores(
@@ -1139,11 +1325,10 @@ if submitted:
             "間食カロリー(kcal)": snacks_kcal,
             "ドリンクカロリー(kcal)": drinks_kcal,
             "ベンチプレス(kg)": bench if trained else 0,
+            "カロリー推定信頼度": calorie_confidence,
         }
     )
-    new_row = pd.DataFrame(
-        [record]
-    )
+    new_row = pd.DataFrame([record])
     df = pd.concat([df, new_row], ignore_index=True)
     df = df.sort_values("日付")
     try:
@@ -1156,6 +1341,7 @@ if submitted:
             f"朝 {breakfast_kcal:,}kcal / 昼 {lunch_kcal:,}kcal / 夜 {dinner_kcal:,}kcal / "
             f"間食 {snacks_kcal:,}kcal / ドリンク {drinks_kcal:,}kcal"
         )
+        st.write(f"カロリー推定信頼度: {calorie_confidence}")
     except Exception as exc:
         st.error(f"保存に失敗しました: {exc}")
 
@@ -1311,6 +1497,7 @@ else:
         f"仕事中のドリンク: {latest.get('仕事中のドリンク', '')} / "
         f"{int(latest.get('ドリンクカロリー(kcal)', 0)):,}kcal"
     )
+    st.write(f"カロリー推定信頼度: {latest.get('カロリー推定信頼度', '')}")
     st.write(f"筋トレ: {latest.get('筋トレ有無', '')} / {latest.get('筋トレ内容', '')}")
     st.write(
         f"モード: {latest.get('モード', '')} / イベント名: {latest.get('イベント名', '')} / "

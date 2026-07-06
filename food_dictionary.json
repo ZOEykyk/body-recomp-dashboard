@@ -1,0 +1,49 @@
+{
+  "foods": [
+    {
+      "name": "サラダチキン",
+      "kcal": 120,
+      "aliases": ["salad chicken"]
+    },
+    {
+      "name": "ゆで卵",
+      "kcal": 80,
+      "aliases": ["ゆでたまご", "茹で卵", "卵1個", "卵"]
+    },
+    {
+      "name": "納豆",
+      "kcal": 90,
+      "aliases": ["なっとう"]
+    },
+    {
+      "name": "めかぶ",
+      "kcal": 20,
+      "aliases": []
+    },
+    {
+      "name": "舞茸おにぎり",
+      "kcal": 180,
+      "aliases": ["まいたけおにぎり"]
+    },
+    {
+      "name": "赤飯おにぎり",
+      "kcal": 230,
+      "aliases": ["せきはんおにぎり"]
+    },
+    {
+      "name": "ベーグル",
+      "kcal": 250,
+      "aliases": ["bagel"]
+    },
+    {
+      "name": "有塩バター7g",
+      "kcal": 52,
+      "aliases": ["有塩バター", "バター7g", "バター"]
+    },
+    {
+      "name": "おにぎり",
+      "kcal": 190,
+      "aliases": []
+    }
+  ]
+}
