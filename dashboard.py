@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import datetime as dt
+import html
 import re
 from typing import Any, Callable
 
 import altair as alt
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from bodyos_standard import MODES, SCORE_COMPONENTS, condition_score
 from workout_intelligence import analyze_workout
 
 STEP_RANK_ORDER = ["S", "A", "B", "C", "D"]
-X_AXIS_LABEL_ANGLE = -45
-X_AXIS_LABEL_FONT_SIZE = 13
+X_AXIS_LABEL_ANGLE = -40
+X_AXIS_LABEL_FONT_SIZE = 16
 SCORE_LABELS = [
     (90, "🟢 Excellent", "#2ca02c"),
     (80, "🔵 Good", "#1f77b4"),
@@ -149,45 +151,89 @@ def body_score_chart(data: pd.DataFrame) -> alt.LayerChart:
     return (score_line + average_line + score_points).properties(height=320)
 
 
-def step_rank_distribution_chart(data: pd.DataFrame) -> alt.Chart:
-    chart_data = (
+def step_rank_distribution_data(data: pd.DataFrame) -> pd.DataFrame:
+    return (
         data["歩数ランク"]
         .value_counts()
         .reindex(STEP_RANK_ORDER, fill_value=0)
         .rename_axis("歩数ランク")
         .reset_index(name="日数")
     )
-    return (
-        alt.Chart(chart_data)
-        .mark_bar(color="#4c78a8")
-        .encode(
-            x=alt.X("歩数ランク:N", sort=STEP_RANK_ORDER, axis=dashboard_x_axis("歩数ランク")),
-            y=alt.Y("日数:Q", title="日数"),
-            tooltip=["歩数ランク", "日数"],
-        )
-        .properties(height=300)
-    )
 
 
-def weekly_workout_count_chart(
+def weekly_workout_count_data(
     chart_df: pd.DataFrame,
     training_counted: Callable[[dict[str, Any] | pd.Series], bool],
-) -> alt.Chart:
-    weekly_training = (
+) -> pd.DataFrame:
+    return (
         chart_df.assign(筋トレ回数=chart_df.apply(training_counted, axis=1).astype(int))
         .groupby("週", sort=False)["筋トレ回数"]
         .sum()
         .reset_index()
     )
-    return (
-        alt.Chart(weekly_training)
-        .mark_bar(color="#9467bd")
-        .encode(
-            x=alt.X("週:N", sort=list(weekly_training["週"]), axis=dashboard_x_axis("週")),
-            y=alt.Y("筋トレ回数:Q", title="筋トレ回数"),
-            tooltip=["週", "筋トレ回数"],
+
+
+def render_static_bar_chart(
+    chart_data: pd.DataFrame,
+    label_column: str,
+    value_column: str,
+    color: str,
+    y_title: str,
+) -> None:
+    width = 900
+    height = 340
+    left = 48
+    right = 24
+    top = 28
+    bottom = 88
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+    count = max(len(chart_data), 1)
+    max_value = max(float(chart_data[value_column].max()), 1.0)
+    slot_width = plot_width / count
+    bar_width = min(slot_width * 0.48, 58)
+
+    bars: list[str] = []
+    y_ticks: list[str] = []
+    for tick in range(int(max_value) + 1):
+        y = top + plot_height - (tick / max_value) * plot_height
+        y_ticks.append(
+            f"""
+            <line x1="{left}" y1="{y:.1f}" x2="{width - right}" y2="{y:.1f}" stroke="#f0f0f0" />
+            <text x="{left - 10}" y="{y + 4:.1f}" text-anchor="end" font-size="12" fill="#666">{tick}</text>
+            """
         )
-        .properties(height=300)
+
+    for index, row in enumerate(chart_data.to_dict("records")):
+        label = str(row[label_column])
+        value = int(row[value_column])
+        bar_height = (value / max_value) * plot_height if value > 0 else 0
+        x_center = left + slot_width * index + slot_width / 2
+        x = x_center - bar_width / 2
+        y = top + plot_height - bar_height
+        label_y = top + plot_height + 34
+        bars.append(
+            f"""
+            <rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" height="{bar_height:.1f}" fill="{color}" rx="3" />
+            <text x="{x_center:.1f}" y="{y - 8:.1f}" text-anchor="middle" font-size="14" fill="#333">{value}</text>
+            <text x="{x_center:.1f}" y="{label_y:.1f}" text-anchor="end" font-size="{X_AXIS_LABEL_FONT_SIZE}" fill="#333"
+                  transform="rotate({X_AXIS_LABEL_ANGLE} {x_center:.1f} {label_y:.1f})">{html.escape(label)}</text>
+            """
+        )
+
+    components.html(
+        f"""
+        <svg class="static-dashboard-chart" data-static-chart="true" viewBox="0 0 {width} {height}"
+             width="100%" height="{height}" role="img" aria-label="{html.escape(y_title)} bar chart">
+          <text x="{left}" y="16" font-size="13" fill="#555">{html.escape(y_title)}</text>
+          {''.join(y_ticks)}
+          <line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_height}" stroke="#d9d9d9" />
+          <line x1="{left}" y1="{top + plot_height}" x2="{width - right}" y2="{top + plot_height}" stroke="#d9d9d9" />
+          {''.join(bars)}
+        </svg>
+        """,
+        height=height,
+        scrolling=False,
     )
 
 
@@ -336,10 +382,16 @@ def render_dashboard(
     st.altair_chart(daily_bar_chart(chart_df, "歩数", "歩数", "#4c78a8"), use_container_width=True)
 
     st.subheader("歩数ランク別の日数")
-    st.altair_chart(step_rank_distribution_chart(data), use_container_width=True)
+    render_static_bar_chart(step_rank_distribution_data(data), "歩数ランク", "日数", "#4c78a8", "日数")
 
     st.subheader("週ごとの筋トレ回数")
-    st.altair_chart(weekly_workout_count_chart(chart_df, training_counted), use_container_width=True)
+    render_static_bar_chart(
+        weekly_workout_count_data(chart_df, training_counted),
+        "週",
+        "筋トレ回数",
+        "#9467bd",
+        "筋トレ回数",
+    )
 
     st.subheader("ベンチプレス90kgセット数の推移")
     st.altair_chart(daily_line_chart(chart_df, "ベンチプレス90kgセット数", "90kgセット数", "#9467bd"), use_container_width=True)
