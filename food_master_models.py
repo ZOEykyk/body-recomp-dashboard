@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import json
 from typing import Any
+import unicodedata
 from uuid import uuid4
 
 
@@ -44,6 +45,16 @@ def normalized_identity_key(item: dict[str, Any]) -> tuple[str, str, str, str]:
     return tuple(" ".join(str(identity[field] or "").lower().split()) for field in ("brand", "canonical_name", "variant", "size"))
 
 
+def normalize_meal_content(value: Any) -> str:
+    """Create a stable, formatting-insensitive representation of meal text."""
+    return " ".join(unicodedata.normalize("NFKC", str(value or "")).lower().split())
+
+
+def meal_content_fingerprint(value: Any) -> str:
+    normalized = normalize_meal_content(value)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def encounter_idempotency_key(
     owner_user_id: str,
     record_date: str,
@@ -55,7 +66,7 @@ def encounter_idempotency_key(
         "owner_user_id": owner_user_id,
         "record_date": record_date,
         "meal_type": meal_type,
-        "normalized_fragment": " ".join(str(original_fragment or "").lower().split()),
+        "normalized_fragment": normalize_meal_content(original_fragment),
         "operation_id": operation_id,
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")

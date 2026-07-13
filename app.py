@@ -27,6 +27,7 @@ from data_integrity import (
 from dashboard import render_dashboard
 from food_lookup import calculate_lookup_total, lookup_food
 from food_master_repository import JsonFoodMasterRepository
+from food_master_models import meal_content_fingerprint
 from food_master_ui import render_food_master_management
 from food_parser import parse_food_text
 from food_source_models import explicit_user_label_source, internal_nutrition_source
@@ -603,6 +604,7 @@ def remember_saved_meals(
     for meal_type, text, detail in meals:
         if not str(text or "").strip():
             continue
+        content_operation_id = f"{operation_id}:content:{meal_content_fingerprint(text)}"
         parsed_foods = detail.get("parsed_foods") if isinstance(detail, dict) else None
         if not isinstance(parsed_foods, dict):
             parsed_foods = parse_food_text(str(text), meal_type)
@@ -613,7 +615,7 @@ def remember_saved_meals(
                 parsed_foods,
                 meal_type=meal_type,
                 record_date=record_date,
-                operation_id=operation_id,
+                operation_id=content_operation_id,
                 used_at=used_at,
             )
         )

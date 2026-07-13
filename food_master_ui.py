@@ -49,6 +49,9 @@ def render_food_master_management(repository: FoodMasterRepository, user_id: str
     candidates = repository.list_candidates(user_id)
 
     st.header("Personal Food Master")
+    st.info(
+        "保存方式: local MVPです。Personal Food MasterのJSON/JSONLはStreamlit Cloudの再起動・再デプロイで消失する可能性があります。"
+    )
     with st.expander(f"食品管理: active {len(active_foods)}件 / candidate {len(candidates)}件", expanded=False):
         if not foods:
             st.caption("新しい記録を保存すると、食品遭遇がここに蓄積されます。")

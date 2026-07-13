@@ -48,7 +48,9 @@ RECORDS_CSV_PATH = "records.csv"
 
 新規保存・新規JSON import時には、`Personal Food Master` が食品遭遇をローカルに記録します。未知食品や明示ラベルはまずreviewable candidateとして保存され、推定値だけを信頼済み食品へ自動昇格しません。公式の確認済みsourceを持つ食品、または明示的にreviewされたcandidateだけが再利用可能なactive foodになります。Personal Food Masterは`records.csv`とは分離され、既存の履歴を自動変換しません。
 
-画面下部の`Personal Food Master`から、active food、pending candidate、使用回数、最終使用、source、review statusを確認できます。candidateは確認して有効化するか既存foodへlinkでき、alias追加とarchiveにも対応します。保存の再試行や同じJSON importでは、同じ食品遭遇を重複記録しません。
+Personal Food Masterの保存は現時点では**local MVP**です。`personal_food_master.json` と `food_encounters.jsonl` はStreamlit Cloudの再起動・再デプロイで消失する可能性があり、durabilityは保証されません。`records.csv` のGitHub保存設定はFood Masterには適用されません。
+
+画面下部の`Personal Food Master`から、active food、pending candidate、使用回数、最終使用、source、review statusを確認できます。candidateは確認して有効化するか既存foodへlinkでき、alias追加とarchiveにも対応します。保存の再試行や同じJSON importでは、同じ食品遭遇を重複記録しません。一方、同じ日でも食事内容または数量が変わった保存・importは新しい食品遭遇として記録します。
 
 食事テキストに `289 kcal` のような明示的なkcal値が含まれる場合は、その値を最優先します。複数のkcal値がある場合は合計します。これは食べた特定パッケージのラベル値として扱われ、公式値や推定値で黙って置き換えません。異なるsourceの栄養値が競合する場合は、優先sourceを示したうえでreview対象として残します。
 

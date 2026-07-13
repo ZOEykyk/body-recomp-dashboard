@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from food_master_models import normalized_identity_key
+from food_master_models import meal_content_fingerprint, normalized_identity_key
 from food_master_repository import JsonFoodMasterRepository
 from food_parser import parse_food_text
 from food_source_models import explicit_user_label_source
@@ -110,6 +110,78 @@ def main() -> None:
         )
         assert_equal(repeated, [], "manual retry idempotency")
         assert_equal(repository.list_candidates("user-a")[0]["use_count"], 3, "retry must not increment use count")
+
+        content_repository = JsonFoodMasterRepository(root / "content_master.json", root / "content_encounters.jsonl")
+        same_day = "2026-07-18"
+        manual_two = parse_food_text("ファミチキ2個", "間食")
+        manual_two_operation = f"manual-save:{same_day}:content:{meal_content_fingerprint('ファミチキ2個')}"
+        first_manual = remember_food_encounters(
+            content_repository,
+            "user-a",
+            manual_two,
+            meal_type="間食",
+            record_date=same_day,
+            operation_id=manual_two_operation,
+            used_at=f"{same_day}T09:00:00+00:00",
+        )
+        same_manual_retry = remember_food_encounters(
+            content_repository,
+            "user-a",
+            manual_two,
+            meal_type="間食",
+            record_date=same_day,
+            operation_id=manual_two_operation,
+            used_at=f"{same_day}T09:01:00+00:00",
+        )
+        assert_equal(len(first_manual), 1, "first manual content encounter")
+        assert_equal(same_manual_retry, [], "identical manual content retry")
+
+        manual_three = parse_food_text("ファミチキ3個", "間食")
+        changed_manual = remember_food_encounters(
+            content_repository,
+            "user-a",
+            manual_three,
+            meal_type="間食",
+            record_date=same_day,
+            operation_id=f"manual-save:{same_day}:content:{meal_content_fingerprint('ファミチキ3個')}",
+            used_at=f"{same_day}T09:02:00+00:00",
+        )
+        assert_equal(len(changed_manual), 1, "quantity change becomes a new manual encounter")
+
+        import_date = "2026-07-19"
+        imported_meal = parse_food_text("ファミチキ、ゆで卵", "間食")
+        imported_operation = f"json-import:{import_date}:content:{meal_content_fingerprint('ファミチキ、ゆで卵')}"
+        first_import = remember_food_encounters(
+            content_repository,
+            "user-a",
+            imported_meal,
+            meal_type="間食",
+            record_date=import_date,
+            operation_id=imported_operation,
+            used_at=f"{import_date}T09:00:00+00:00",
+        )
+        same_import = remember_food_encounters(
+            content_repository,
+            "user-a",
+            imported_meal,
+            meal_type="間食",
+            record_date=import_date,
+            operation_id=imported_operation,
+            used_at=f"{import_date}T09:01:00+00:00",
+        )
+        revised_import_text = "ファミチキ、ゆで卵、納豆"
+        revised_import = remember_food_encounters(
+            content_repository,
+            "user-a",
+            parse_food_text(revised_import_text, "間食"),
+            meal_type="間食",
+            record_date=import_date,
+            operation_id=f"json-import:{import_date}:content:{meal_content_fingerprint(revised_import_text)}",
+            used_at=f"{import_date}T09:02:00+00:00",
+        )
+        assert_equal(len(first_import), 2, "first JSON import encounters")
+        assert_equal(same_import, [], "identical JSON import retry")
+        assert_equal(len(revised_import), 3, "revised JSON import records changed content")
 
         size_250 = parse_food_text("自作プロテインドリンク 250ml", "間食")
         size_500 = parse_food_text("自作プロテインドリンク 500ml", "間食")
