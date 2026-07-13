@@ -25,6 +25,7 @@ from data_integrity import (
     valid_weight_series,
 )
 from dashboard import render_dashboard
+from food_lookup import calculate_lookup_total, lookup_food
 from food_parser import parse_food_text
 
 DATA_FILE = "records.csv"
@@ -476,6 +477,17 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
 
     for item in items:
         item_text = str(item.get("canonical_name") or item.get("raw_text") or "")
+        lookup_result = lookup_food(item)
+        if lookup_result["matched"]:
+            lookup_total = calculate_lookup_total(lookup_result, item.get("quantity"), item.get("unit"))
+            lookup_kcal = lookup_total["calories_kcal"]
+            if lookup_kcal is None or lookup_total["needs_review"]:
+                unknown_items.append(str(item.get("raw_text") or item_text))
+                continue
+            total += float(lookup_kcal)
+            detected_foods.append(str(lookup_result["food"]["canonical_name"]))
+            continue
+
         match = best_food_match(item_text) or best_food_match(str(item.get("raw_text") or ""))
         if not match:
             unknown_items.append(str(item.get("raw_text") or item_text))
@@ -509,7 +521,7 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
             confidence = "low"
 
     return {
-        "kcal": int(total),
+        "kcal": int(round(total)),
         "confidence": confidence,
         "detected_foods": detected_foods,
         "unknown_items": unknown_items,

@@ -17,6 +17,7 @@
 - PR7.2 Score Component Normalization & UI Refresh
 - PR7.6 Dashboard Cleanup & Information Hierarchy
 - PR8.1 Food Parser Foundation
+- PR8.2 Food Lookup Engine
 - PR8 Body Score AI
 - PR9 Coach AI
 - PR10 Lifestyle Intelligence
