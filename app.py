@@ -797,7 +797,9 @@ def normalize_columns(data: pd.DataFrame) -> pd.DataFrame:
         lambda row: substantive_training_detail(row["筋トレ内容"]) or substantive_training_detail(row["筋トレ有無"]),
         axis=1,
     )
+    original_training_status_blank = data["筋トレ有無"].apply(is_blank_value)
     data["筋トレ有無"] = data["筋トレ有無"].apply(normalize_yes_no)
+    data.loc[original_training_status_blank & data["筋トレ内容"].astype(bool), "筋トレ有無"] = "あり"
     data["モード"] = data["モード"].apply(normalize_mode)
 
     return data[COLUMNS]

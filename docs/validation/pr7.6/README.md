@@ -15,6 +15,8 @@ After:
 - `after_tablet.png`
 - `after_mobile_390.png`
 - `after_mobile_430.png`
+- `workout_fix_desktop.png`
+- `workout_fix_mobile_390.png`
 
 ## Confirmed
 
@@ -28,3 +30,17 @@ After:
 - Desktop, tablet, 390px, and 430px screenshots show no horizontal overflow.
 - Streamlit renders without exceptions.
 - `records.csv` is unchanged.
+
+## Follow-up Validation
+
+- Confirmed blank workout status with valid workout detail is treated as performed.
+- Confirmed explicit no-workout status with blank detail is treated as not performed.
+- Confirmed blank workout status and blank detail are treated as not performed.
+- Confirmed explicit performed status with valid workout detail is treated as performed.
+- Confirmed PR-only candidates render as content cards.
+- Confirmed next-target-only candidates render as content cards.
+- Confirmed mixed PR and next-target candidates render as a combined Top 3.
+- Confirmed duplicate exercise candidates are consolidated into one card where possible.
+- Confirmed empty Workout Intelligence candidates show an empty state.
+- Confirmed Workout Intelligence result object keys are unchanged.
+- Confirmed Desktop and 390px Workout Intelligence screenshots show content cards without horizontal overflow.

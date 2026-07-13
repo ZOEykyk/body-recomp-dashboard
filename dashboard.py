@@ -443,6 +443,20 @@ def format_metric_number(value: Any, suffix: str = "") -> str:
     return f"{parsed:,.1f}{suffix}"
 
 
+WORKOUT_NO_TEXTS = {"", "なし", "無し", "無", "false", "no", "n", "0", "休み", "してない", "未実施"}
+WORKOUT_EXPLICIT_NO_TEXTS = WORKOUT_NO_TEXTS - {""}
+WORKOUT_YES_TEXTS = {"あり", "有", "true", "yes", "y", "1", "done", "実施", "した"}
+
+
+def normalized_workout_text(value: Any) -> str:
+    try:
+        if value is None or pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().lower()
+
+
 def recommendation_priority(target: dict[str, Any]) -> tuple[str, int]:
     reason = str(target.get("reason", ""))
     if target.get("target_weight_kg") is not None and any(keyword in reason for keyword in ["重量", "増量"]):
@@ -452,22 +466,63 @@ def recommendation_priority(target: dict[str, Any]) -> tuple[str, int]:
     return "★★★☆☆", 3
 
 
-def workout_recommendation_cards(targets: list[dict[str, Any]]) -> str:
-    if not targets:
-        return '<p class="bodyos-component-meta">次回ターゲットはありません。</p>'
+def pr_candidate_detail(pr: dict[str, Any]) -> str:
+    previous = f" / previous {pr['previous_best']:g}{pr['unit']}" if pr.get("previous_best") else ""
+    return f"{pr.get('label', 'PR候補')}: {pr.get('value', 0):g}{pr.get('unit', '')}{previous}"
 
-    ranked_targets = sorted(targets, key=lambda target: recommendation_priority(target)[1], reverse=True)[:3]
+
+def workout_display_candidates(
+    prs: list[dict[str, Any]],
+    next_targets: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    by_exercise: dict[str, dict[str, Any]] = {}
+
+    def upsert(exercise: str, stars: str, priority: int, details: list[str]) -> None:
+        key = exercise.strip() or "Workout"
+        current = by_exercise.setdefault(key, {"exercise": key, "stars": stars, "priority": priority, "details": []})
+        if priority > current["priority"]:
+            current["priority"] = priority
+            current["stars"] = stars
+        for detail in details:
+            if detail and detail not in current["details"]:
+                current["details"].append(detail)
+
+    for pr in prs:
+        upsert(str(pr.get("exercise", "Workout")), "★★★★★", 6, [pr_candidate_detail(pr)])
+
+    for target in next_targets:
+        stars, priority = recommendation_priority(target)
+        upsert(
+            str(target.get("exercise", "Workout")),
+            stars,
+            priority,
+            [str(target.get("target", "")), str(target.get("reason", ""))],
+        )
+
+    return sorted(by_exercise.values(), key=lambda candidate: candidate["priority"], reverse=True)[:3]
+
+
+def workout_recommendation_cards(prs: list[dict[str, Any]], next_targets: list[dict[str, Any]]) -> str:
+    candidates = workout_display_candidates(prs, next_targets)
+    if not candidates:
+        return '<p class="bodyos-component-meta">表示できる候補はありません。</p>'
+
     cards: list[str] = []
-    for target in ranked_targets:
-        stars, _score = recommendation_priority(target)
+    for candidate in candidates:
+        details = candidate["details"][:2]
+        primary = details[0] if details else ""
+        secondary = details[1] if len(details) > 1 else ""
+        secondary_markup = (
+            f'<div class="bodyos-component-meta">{html.escape(secondary)}</div>' if secondary else ""
+        )
         cards.append(
             textwrap.dedent(
                 f"""
             <div class="bodyos-component-card">
-              <div class="bodyos-component-label">{html.escape(str(target.get('exercise', 'Workout')))}</div>
-              <div class="bodyos-component-rate" style="font-size: 1.35rem;">{stars}</div>
-              <div class="bodyos-component-score">{html.escape(str(target.get('target', '')))}</div>
-              <div class="bodyos-component-meta">{html.escape(str(target.get('reason', '')))}</div>
+              <div class="bodyos-component-label">{html.escape(str(candidate['exercise']))}</div>
+              <div class="bodyos-component-rate" style="font-size: 1.35rem;">{candidate['stars']}</div>
+              <div class="bodyos-component-score">{html.escape(primary)}</div>
+              {secondary_markup}
             </div>
             """
             ).strip()
@@ -476,12 +531,13 @@ def workout_recommendation_cards(targets: list[dict[str, Any]]) -> str:
 
 
 def workout_marked_performed(latest: pd.Series) -> bool:
-    false_values = {"", "なし", "無", "false", "no", "n", "0", "休み", "してない", "未実施"}
-    status = str(latest.get("筋トレ有無", "")).strip().lower()
-    detail = str(latest.get("筋トレ内容", "")).strip().lower()
-    if status in false_values or detail in false_values:
+    status = normalized_workout_text(latest.get("筋トレ有無", ""))
+    detail = normalized_workout_text(latest.get("筋トレ内容", ""))
+    if status in WORKOUT_EXPLICIT_NO_TEXTS:
         return False
-    return True
+    if detail not in WORKOUT_NO_TEXTS:
+        return True
+    return status in WORKOUT_YES_TEXTS
 
 
 def dashboard_metric_cards(cards: list[dict[str, str]]) -> str:
@@ -519,18 +575,15 @@ def render_workout_intelligence(latest: pd.Series, data: pd.DataFrame) -> None:
     workout_history = data.iloc[:-1].to_dict("records") if len(data) > 1 else []
     workout_insight = analyze_workout(latest.to_dict(), history=workout_history)
     st.write(workout_insight["summary"])
-    if workout_insight["prs"]:
-        st.caption(f"PR候補 {min(len(workout_insight['prs']), 3)}件")
-    if workout_insight["next_targets"]:
-        markup = textwrap.dedent(
-            f"""
-            {score_component_styles()}
-            <div class="bodyos-component-section">
-              {workout_recommendation_cards(workout_insight["next_targets"])}
-            </div>
-            """
-        ).strip()
-        render_html_section(markup, fallback_height=420)
+    markup = textwrap.dedent(
+        f"""
+        {score_component_styles()}
+        <div class="bodyos-component-section">
+          {workout_recommendation_cards(workout_insight["prs"], workout_insight["next_targets"])}
+        </div>
+        """
+    ).strip()
+    render_html_section(markup, fallback_height=420)
 
 
 def render_body_score_summary(latest: pd.Series, chart_df: pd.DataFrame) -> None:
