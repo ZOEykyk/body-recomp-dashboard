@@ -1,0 +1,93 @@
+{
+  "catalog_version": "1.0",
+  "items": [
+    {
+      "id": "familymart-famichiki-boneless",
+      "brand": "FamilyMart",
+      "brand_aliases": ["ファミマ", "familymart", "family mart"],
+      "canonical_name": "ファミチキ",
+      "aliases": ["ファミチキ", "ファミチキ（骨なし）", "ファミマチキン"],
+      "variant": null,
+      "size": null,
+      "nutrition": {
+        "basis": "per_item",
+        "calories_kcal": 251.7,
+        "protein_g": 12.7,
+        "fat_g": 15.7,
+        "carbs_g": 14.8
+      },
+      "source": {
+        "source_type": "official_product_page",
+        "publisher": "FamilyMart",
+        "url": "https://www.family.co.jp/goods/friedfoods/0253116.html",
+        "verified_on": "2026-07-13"
+      }
+    },
+    {
+      "id": "mcdonalds-sausage-egg-mcmuffin",
+      "brand": "McDonald's",
+      "brand_aliases": ["マクドナルド", "マック", "mcdonalds", "mcdonald's"],
+      "canonical_name": "ソーセージエッグマフィン",
+      "aliases": ["ソーセージエッグマフィン", "sausage egg mcmuffin"],
+      "variant": null,
+      "size": null,
+      "nutrition": {
+        "basis": "per_item",
+        "calories_kcal": 477,
+        "protein_g": 21.9,
+        "fat_g": 30.6,
+        "carbs_g": 27.3
+      },
+      "source": {
+        "source_type": "official_nutrition_table",
+        "publisher": "McDonald's Japan",
+        "url": "https://www.mcdonalds.co.jp/quality/allergy_Nutrition/nutrient/",
+        "verified_on": "2026-07-13"
+      }
+    },
+    {
+      "id": "mcdonalds-egg-mcmuffin",
+      "brand": "McDonald's",
+      "brand_aliases": ["マクドナルド", "マック", "mcdonalds", "mcdonald's"],
+      "canonical_name": "エッグマックマフィン",
+      "aliases": ["エッグマックマフィン", "egg mcmuffin"],
+      "variant": null,
+      "size": null,
+      "nutrition": {
+        "basis": "per_item",
+        "calories_kcal": 310,
+        "protein_g": 18.6,
+        "fat_g": 13.6,
+        "carbs_g": 27.2
+      },
+      "source": {
+        "source_type": "official_product_page",
+        "publisher": "McDonald's Japan",
+        "url": "https://www.mcdonalds.co.jp/products/1410/",
+        "verified_on": "2026-07-13"
+      }
+    },
+    {
+      "id": "mcdonalds-hash-potato",
+      "brand": "McDonald's",
+      "brand_aliases": ["マクドナルド", "マック", "mcdonalds", "mcdonald's"],
+      "canonical_name": "ハッシュポテト",
+      "aliases": ["ハッシュポテト", "hash potato", "hash browns"],
+      "variant": null,
+      "size": null,
+      "nutrition": {
+        "basis": "per_item",
+        "calories_kcal": 157,
+        "protein_g": 1.4,
+        "fat_g": 10.2,
+        "carbs_g": 14.8
+      },
+      "source": {
+        "source_type": "official_product_page",
+        "publisher": "McDonald's Japan",
+        "url": "https://www.mcdonalds.co.jp/products/5010/",
+        "verified_on": "2026-07-13"
+      }
+    }
+  ]
+}

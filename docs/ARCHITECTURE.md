@@ -40,6 +40,8 @@ Body Score / Coach feedback
 - `restaurant_dictionary.json`: Restaurant-specific calorie estimates.
 - `food_parser.py`: Pure food text parser that converts meal free text into structured food items and explicit nutrition values without owning nutrition lookup data.
 - `food_aliases.py`: Lightweight alias normalization for parser output. It does not store calorie or macro values.
+- `food_lookup.py`: Pure local Food Lookup Engine that resolves parsed foods against the reviewed seed catalog and returns nutrition, source, and match metadata.
+- `food_lookup_catalog.json`: Small reviewed catalog of official product/menu nutrition facts. It is local data, not a runtime web fetch or a broad Food Master database.
 - `bodyos_standard.py`: Reusable BodyOS Standard v1.0 rule engine for daily scoring and score component maximum-score metadata.
 - `workout_intelligence.py`: Reusable Workout Intelligence v1 parser and training feedback engine.
 - `README.md`: User-facing setup and feature documentation.
@@ -54,7 +56,7 @@ The current storage model is CSV-first. Locally, records are saved to `records.c
 1. User records a day manually or pastes ChatGPT JSON.
 2. Input is normalized into BodyOS columns.
 3. Meals are parsed by `parse_food_text(text, meal_type)` into structured food items and explicit nutrition values.
-4. Calories are estimated from explicit kcal first, then dictionary matching, then fallback estimation unless manual calories are provided.
+4. Calories are estimated from explicit kcal first, then Food Lookup, then dictionary matching, then fallback estimation unless manual calories are provided.
 5. Workout fields are normalized for consistent training counts.
 6. Workout Intelligence parses workout text for insights without changing the CSV schema.
 7. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
@@ -73,10 +75,12 @@ food_parser.py
 ↓
 structured parsed foods / explicit kcal and PFC
 ↓
+food_lookup.py / reviewed seed catalog
+↓
 existing dictionary and fallback calorie estimator
 ```
 
-The parser understands text structure: delimiters, composite meals, brand context, variants, size, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It returns food item contracts designed for future lookup (`brand`, `canonical_name`, `variant`, `size`, `quantity`, `unit`, `original_fragment`, `resolution`, `confidence`, `needs_review`, and `explicit_nutrition`). It does not fetch public nutrition data and does not hardcode calorie values. Nutrition lookup remains the responsibility of dictionaries today and a future Food Lookup / Food Master layer later.
+The parser understands text structure: delimiters, composite meals, brand context, variants, size, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It returns food item contracts designed for lookup (`brand`, `canonical_name`, `variant`, `size`, `quantity`, `unit`, `original_fragment`, `resolution`, `confidence`, `needs_review`, and `explicit_nutrition`). `food_lookup.py` is a separate pure layer: it uses the reviewed local catalog, returns `matched`, `nutrition`, `source`, and `match` metadata, and declines ambiguous matches. Explicit values from the user remain highest priority. Broad Food Master ingestion and runtime public-data fetching remain future work.
 
 ## Dashboard Layer
 

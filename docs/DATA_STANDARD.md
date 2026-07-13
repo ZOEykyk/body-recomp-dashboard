@@ -92,6 +92,9 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - Parser resolution values distinguish `alias_exact`, `normalized_exact`, `brand_context`, and `unresolved`. Unresolved or ambiguous foods must preserve the original fragment and set `needs_review=true`.
 - Explicit nutrition extracted from user text carries `basis` and `value_origin="explicit_text"`. General nutrition source management is reserved for a future Food Lookup/Food Master layer.
 - Explicit kcal values in meal text have the highest priority.
+- Food Lookup runs after parsing and before the existing estimate dictionaries. A lookup result is valid only when the reviewed local catalog yields one unambiguous product/menu match.
+- Lookup results expose `matched`, `nutrition`, `source`, and `match` metadata. `source` identifies the official product page or official nutrition table used to validate the local catalog item.
+- If lookup is unresolved, ambiguous, variant-mismatched, or size-mismatched, it must not invent a trusted value; the existing dictionary/fallback path remains available.
 - Dictionary-based calorie estimates should feel realistic, not perfectly precise.
 - If only part of a meal is detected, unknown items should not silently become 0 kcal.
 - Zero-meal text such as `なし`, `食べていない`, `未食`, `抜き`, `スキップ`, `朝食なし`, `昼食なし`, `夕食なし`, `晩御飯なし`, and `晩ご飯なし` is an explicit no-meal signal for breakfast, lunch, dinner, and snacks. It should return 0 kcal with no fallback estimate.
