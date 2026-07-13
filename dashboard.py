@@ -11,6 +11,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from bodyos_standard import MODES, SCORE_COMPONENTS, condition_score
+from data_integrity import format_optional_number, format_weight_kg, valid_weight_series
 from workout_intelligence import analyze_workout
 
 STEP_RANK_ORDER = ["S", "A", "B", "C", "D"]
@@ -291,6 +292,8 @@ def render_recent_details(latest: pd.Series) -> None:
 
 def render_history_table(chart_df: pd.DataFrame) -> None:
     st.subheader("記録一覧")
+    history_df = chart_df.copy()
+    history_df["体重"] = history_df["体重表示"]
     history_columns = [
         "日付表示",
         "Body Score",
@@ -306,7 +309,7 @@ def render_history_table(chart_df: pd.DataFrame) -> None:
         "飲酒内容",
         "コメント",
     ]
-    st.dataframe(chart_df[history_columns], use_container_width=True, hide_index=True)
+    st.dataframe(history_df[history_columns], use_container_width=True, hide_index=True)
 
 
 def render_dashboard(
@@ -318,7 +321,9 @@ def render_dashboard(
     data = data.sort_values("日付")
     latest = data.iloc[-1]
     chart_df = add_daily_display_columns(data)
-    chart_df["7日平均体重"] = chart_df["体重"].rolling(window=7, min_periods=1).mean()
+    chart_df["有効体重"] = valid_weight_series(chart_df["体重"])
+    chart_df["体重表示"] = chart_df["体重"].apply(format_weight_kg)
+    chart_df["7日平均体重"] = chart_df["有効体重"].rolling(window=7, min_periods=1).mean()
     chart_df["7日平均Body Score"] = chart_df["Body Score"].rolling(window=7, min_periods=1).mean()
     chart_df["ベンチプレス90kgセット数"] = chart_df["筋トレ内容"].apply(count_bench_90kg_sets)
     chart_df["飲酒あり"] = chart_df["飲酒"].apply(alcohol_present)
@@ -337,7 +342,7 @@ def render_dashboard(
         st.caption(score_label(latest["Body Score"]))
     c2.metric("7日平均Body Score", f"{chart_df['7日平均Body Score'].iloc[-1]:.1f}点")
     c3.metric("最新モード", str(latest["モード"]))
-    c4.metric("最新体重", f"{latest['体重']:.1f}kg")
+    c4.metric("最新体重", format_weight_kg(latest["体重"]))
 
     mode_counts = data["モード"].value_counts().reindex(MODES, fill_value=0)
     m1, m2, m3, m4 = st.columns(4)
@@ -369,8 +374,9 @@ def render_dashboard(
     st.altair_chart(apply_dashboard_axis_config(score_component_chart), use_container_width=True)
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("今週の平均体重", f"{this_week['体重'].mean():.1f}kg" if not this_week.empty else "-")
-    c2.metric("7日平均体重", f"{chart_df['7日平均体重'].iloc[-1]:.1f}kg")
+    this_week_average_weight = valid_weight_series(this_week["体重"]).mean() if not this_week.empty else pd.NA
+    c1.metric("今週の平均体重", format_optional_number(this_week_average_weight, "kg"))
+    c2.metric("7日平均体重", format_optional_number(chart_df["7日平均体重"].iloc[-1], "kg"))
     c3.metric("平均歩数", f"{data['歩数'].mean():,.0f}歩")
     c4.metric("平均摂取カロリー", f"{data['推定摂取カロリー'].mean():,.0f}kcal")
 
@@ -384,7 +390,7 @@ def render_dashboard(
     st.info(predict_target_date(data, target_weight))
 
     st.subheader("体重推移")
-    weight_chart = daily_line_chart(chart_df, "体重", "体重(kg)", "#1f77b4") + daily_line_chart(
+    weight_chart = daily_line_chart(chart_df, "有効体重", "体重(kg)", "#1f77b4") + daily_line_chart(
         chart_df, "7日平均体重", "7日平均体重(kg)", "#888888"
     ).mark_line(strokeDash=[5, 4], color="#888888")
     st.altair_chart(apply_dashboard_axis_config(weight_chart.properties(height=300)), use_container_width=True)
