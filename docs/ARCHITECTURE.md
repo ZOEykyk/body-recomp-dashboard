@@ -33,12 +33,12 @@ Body Score / Coach feedback
 ## Main Components
 
 - `app.py`: Streamlit page setup, input forms, JSON import flow, normalization, CSV persistence, GitHub-backed storage, and high-level orchestration.
-- `dashboard.py`: Dashboard rendering layer for metrics, charts, summaries, recent details, history tables, and Workout Intelligence display.
+- `dashboard.py`: Dashboard rendering layer for metrics, charts, normalized score component cards, improvement priorities, recent details, history tables, and Workout Intelligence display.
 - `records.csv`: Current source of truth for user records.
 - `food_dictionary.json`: General food calorie estimates.
 - `brand_dictionary.json`: Brand and convenience food calorie estimates.
 - `restaurant_dictionary.json`: Restaurant-specific calorie estimates.
-- `bodyos_standard.py`: Reusable BodyOS Standard v1.0 rule engine for daily scoring.
+- `bodyos_standard.py`: Reusable BodyOS Standard v1.0 rule engine for daily scoring and score component maximum-score metadata.
 - `workout_intelligence.py`: Reusable Workout Intelligence v1 parser and training feedback engine.
 - `README.md`: User-facing setup and feature documentation.
 - `docs/`: Product, architecture, data, and development standards.
@@ -57,7 +57,7 @@ The current storage model is CSV-first. Locally, records are saved to `records.c
 6. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
 7. Record is saved to CSV.
 8. `app.py` passes normalized records to `dashboard.py`.
-9. `dashboard.py` renders metrics, charts, Workout Intelligence, and recent details.
+9. `dashboard.py` renders metrics, charts, normalized score component summaries, Workout Intelligence, and recent details.
 
 ## Dashboard Layer
 
@@ -72,8 +72,8 @@ bodyos_standard.py / workout_intelligence.py
 ```
 
 - `app.py` orchestrates page setup, data loading, data saving, imports, and user input.
-- `dashboard.py` renders visual summaries and calls stable analysis interfaces.
-- `bodyos_standard.py` evaluates daily BodyOS scores.
+- `dashboard.py` renders visual summaries and calls stable analysis interfaces. It derives component achievement percentages at render time and does not change stored raw scores.
+- `bodyos_standard.py` evaluates daily BodyOS scores and exposes shared component maximum scores through `SCORE_COMPONENT_MAXIMA`.
 - `workout_intelligence.py` analyzes workout detail text.
 
 This separation keeps future intelligence work safer by allowing scoring and workout analysis to evolve behind stable interfaces while the Streamlit app remains a thin coordinator.

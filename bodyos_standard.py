@@ -18,6 +18,17 @@ SCORE_COMPONENTS = [
     "飲酒スコア",
 ]
 
+SCORE_COMPONENT_MAXIMA = {
+    "体重スコア": 15,
+    "食事スコア": 20,
+    "タンパク質スコア": 15,
+    "歩数スコア": 10,
+    "筋トレスコア": 10,
+    "睡眠スコア": 10,
+    "体調スコア": 10,
+    "飲酒スコア": 10,
+}
+
 CONDITION_SCORES = {
     "最高": 5,
     "とても良い": 5,
@@ -349,8 +360,9 @@ def calculate_bodyos_score(record: dict[str, Any]) -> dict[str, Any]:
         },
         "overall": {
             "score": total,
-            "max_score": 100,
+            "max_score": sum(SCORE_COMPONENT_MAXIMA.values()),
             "components": components,
+            "component_max_scores": SCORE_COMPONENT_MAXIMA.copy(),
         },
         "steps": {
             "value": steps_value,
