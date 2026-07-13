@@ -27,9 +27,13 @@ After PR7.2, the normalized component UI shows improvement priorities, actual / 
 
 ![After normalized component UI](after-normalized-component-ui.png)
 
-After PR7.2, the same component UI remains readable in a narrow viewport:
+After PR7.2, the same component UI remains readable in a 390px mobile viewport:
 
 ![After normalized component UI narrow](after-normalized-component-ui-narrow.png)
+
+After PR7.2, the component UI also remains readable in a 430px mobile viewport:
+
+![After responsive mobile 430](after-responsive-mobile-430.png)
 
 ## Confirmed
 
@@ -39,6 +43,10 @@ After PR7.2, the same component UI remains readable in a narrow viewport:
 - All score component cards render with actual / maximum, achievement percentage, seven-day average, and trend label.
 - Less than seven days of data still produces seven-day averages from available valid records.
 - Trend labels display `データ不足` when there is not enough preceding data.
+- Desktop width 1200px renders component cards in four columns.
+- Mobile widths 390px and 430px render priority items and component cards in one column.
+- Mobile widths 390px and 430px have no horizontal overflow (`bodyOverflow`, `mainOverflow`, `sectionOverflow`, and max card overflow were all 0).
+- Mobile cards preserve readable actual / maximum values, achievement percentage, seven-day average, and trend labels without text clipping.
 - Existing `Body Score` values rendered unchanged from the validation CSV.
 - Streamlit rendered without exceptions in before, after, and narrow-width validation runs.
 - `records.csv` in the PR worktree has no diff.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import html
 import re
+import textwrap
 from typing import Any, Callable
 
 import altair as alt
@@ -241,6 +242,16 @@ def component_trend(data: pd.DataFrame, component: str) -> str:
     return "→ stable"
 
 
+def trend_class(trend: str) -> str:
+    if trend.startswith("↑"):
+        return "trend-up"
+    if trend.startswith("↓"):
+        return "trend-down"
+    if trend.startswith("→"):
+        return "trend-stable"
+    return "trend-insufficient"
+
+
 def score_component_rows(chart_df: pd.DataFrame) -> list[dict[str, Any]]:
     latest = chart_df.iloc[-1]
     rows: list[dict[str, Any]] = []
@@ -262,48 +273,197 @@ def score_component_rows(chart_df: pd.DataFrame) -> list[dict[str, Any]]:
     return rows
 
 
-def render_improvement_priorities(rows: list[dict[str, Any]]) -> None:
-    st.markdown("#### 改善優先項目")
+def score_component_styles() -> str:
+    return textwrap.dedent(
+        """
+    <style>
+      .bodyos-component-section,
+      .bodyos-component-section * {
+        box-sizing: border-box;
+        min-width: 0;
+      }
+      .bodyos-component-grid {
+        display: grid;
+        gap: 0.9rem;
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+      .bodyos-priority-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin: 0.25rem 0 1.25rem;
+      }
+      .bodyos-card-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-top: 0.5rem;
+      }
+      .bodyos-component-card {
+        border: 1px solid rgba(49, 51, 63, 0.18);
+        border-radius: 8px;
+        padding: 0.85rem 0.95rem;
+        background: #fff;
+        overflow-wrap: anywhere;
+        word-break: normal;
+      }
+      .bodyos-component-label {
+        font-weight: 700;
+        line-height: 1.35;
+        margin-bottom: 0.55rem;
+      }
+      .bodyos-component-score {
+        color: rgba(49, 51, 63, 0.82);
+        font-size: 0.98rem;
+        line-height: 1.3;
+        margin-bottom: 0.45rem;
+      }
+      .bodyos-component-rate {
+        font-size: 2rem;
+        font-weight: 750;
+        line-height: 1.05;
+        margin-bottom: 0.35rem;
+      }
+      .bodyos-component-meta {
+        color: rgba(49, 51, 63, 0.68);
+        font-size: 0.9rem;
+        line-height: 1.45;
+      }
+      .bodyos-component-trend {
+        display: inline-block;
+        max-width: 100%;
+        border-radius: 999px;
+        padding: 0.12rem 0.45rem;
+        margin-top: 0.35rem;
+        font-size: 0.82rem;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+      .trend-up {
+        background: rgba(38, 166, 91, 0.12);
+        color: #137333;
+      }
+      .trend-down {
+        background: rgba(214, 39, 40, 0.11);
+        color: #9f1d1d;
+      }
+      .trend-stable,
+      .trend-insufficient {
+        background: rgba(49, 51, 63, 0.08);
+        color: rgba(49, 51, 63, 0.78);
+      }
+      .bodyos-progress-track {
+        height: 0.48rem;
+        width: 100%;
+        border-radius: 999px;
+        background: rgba(49, 51, 63, 0.08);
+        overflow: hidden;
+        margin-top: 0.75rem;
+      }
+      .bodyos-progress-fill {
+        height: 100%;
+        border-radius: inherit;
+        background: #1f77b4;
+      }
+      @media (max-width: 900px) {
+        .bodyos-priority-grid,
+        .bodyos-card-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 520px) {
+        .bodyos-priority-grid,
+        .bodyos-card-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .bodyos-component-card {
+          padding: 0.8rem 0.85rem;
+        }
+        .bodyos-component-rate {
+          font-size: 1.85rem;
+        }
+      }
+    </style>
+    """
+    ).strip()
+
+
+def render_improvement_priorities(rows: list[dict[str, Any]]) -> str:
     priorities = sorted(
         [row for row in rows if row["seven_day_average"] is not None],
         key=lambda row: row["seven_day_average"],
     )[:3]
     if not priorities:
-        st.write("—")
-        return
+        return '<p class="bodyos-component-meta">—</p>'
 
-    columns = st.columns(len(priorities))
+    cards: list[str] = []
     for index, row in enumerate(priorities, start=1):
-        with columns[index - 1]:
-            st.metric(
-                f"{index}. {row['label']}",
-                format_percentage(row["seven_day_average"]),
-                row["trend"],
-            )
+        trend = html.escape(row["trend"])
+        cards.append(
+            textwrap.dedent(
+                f"""
+            <div class="bodyos-component-card">
+              <div class="bodyos-component-label">{index}. {html.escape(row['label'])}</div>
+              <div class="bodyos-component-rate">{format_percentage(row['seven_day_average'])}</div>
+              <div class="bodyos-component-trend {trend_class(row['trend'])}">{trend}</div>
+            </div>
+            """
+            ).strip()
+        )
+    return f'<div class="bodyos-component-grid bodyos-priority-grid">{"".join(cards)}</div>'
 
 
-def render_score_component_cards(rows: list[dict[str, Any]]) -> None:
-    st.markdown("#### 最新コンポーネント")
-    columns = st.columns(4)
-    for index, row in enumerate(rows):
-        with columns[index % 4]:
-            with st.container(border=True):
-                current_rate = row["current_rate"]
-                st.markdown(f"**{row['label']}**")
-                st.write(format_component_score(row["actual"], row["maximum"]))
-                st.metric("達成率", format_percentage(current_rate), row["trend"])
-                st.caption(f"7日平均 {format_percentage(row['seven_day_average'])}")
-                if current_rate is None:
-                    st.caption("達成率データなし")
-                else:
-                    st.progress(current_rate / 100)
+def render_score_component_cards(rows: list[dict[str, Any]]) -> str:
+    cards: list[str] = []
+    for row in rows:
+        current_rate = row["current_rate"]
+        progress_width = 0 if current_rate is None else max(0, min(100, current_rate))
+        progress = (
+            '<div class="bodyos-component-meta">達成率データなし</div>'
+            if current_rate is None
+            else textwrap.dedent(
+                f"""
+              <div class="bodyos-progress-track" aria-hidden="true">
+                <div class="bodyos-progress-fill" style="width: {progress_width:.0f}%"></div>
+              </div>
+            """
+            ).strip()
+        )
+        trend = html.escape(row["trend"])
+        cards.append(
+            textwrap.dedent(
+                f"""
+            <div class="bodyos-component-card">
+              <div class="bodyos-component-label">{html.escape(row['label'])}</div>
+              <div class="bodyos-component-score">{format_component_score(row['actual'], row['maximum'])}</div>
+              <div class="bodyos-component-meta">達成率</div>
+              <div class="bodyos-component-rate">{format_percentage(current_rate)}</div>
+              <div class="bodyos-component-trend {trend_class(row['trend'])}">{trend}</div>
+              <div class="bodyos-component-meta">7日平均 {format_percentage(row['seven_day_average'])}</div>
+              {progress}
+            </div>
+            """
+            ).strip()
+        )
+    return f'<div class="bodyos-component-grid bodyos-card-grid">{"".join(cards)}</div>'
 
 
 def render_score_component_overview(chart_df: pd.DataFrame) -> None:
     st.subheader("スコアコンポーネント")
     rows = score_component_rows(chart_df)
-    render_improvement_priorities(rows)
-    render_score_component_cards(rows)
+    markup = textwrap.dedent(
+        f"""
+        {score_component_styles()}
+        <div class="bodyos-component-section">
+          <h4>改善優先項目</h4>
+          {render_improvement_priorities(rows)}
+          <h4>最新コンポーネント</h4>
+          {render_score_component_cards(rows)}
+        </div>
+        """
+    ).strip()
+    if hasattr(st, "html"):
+        st.html(markup)
+    else:
+        components.html(markup, height=1300, scrolling=False)
 
 
 def step_rank_distribution_data(data: pd.DataFrame) -> pd.DataFrame:
