@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import datetime as dt
 import html
-import re
 import textwrap
 from typing import Any, Callable
 
@@ -11,14 +10,12 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from bodyos_standard import MODES, SCORE_COMPONENTS, SCORE_COMPONENT_MAXIMA, condition_score
+from bodyos_standard import SCORE_COMPONENTS, SCORE_COMPONENT_MAXIMA
 from data_integrity import format_optional_number, format_weight_kg, valid_weight_series
 from workout_intelligence import analyze_workout
 
-STEP_RANK_ORDER = ["S", "A", "B", "C", "D"]
 X_AXIS_LABEL_ANGLE = -40
 X_AXIS_LABEL_FONT_SIZE = 16
-STATIC_CHART_VERSION = "pr7.1-static-svg-v3"
 SCORE_LABELS = [
     (90, "🟢 Excellent", "#2ca02c"),
     (80, "🔵 Good", "#1f77b4"),
@@ -51,35 +48,6 @@ def parse_number(value: Any, default: float = 0) -> float:
         return float(text)
     except ValueError:
         return default
-
-
-def alcohol_present(value: Any) -> bool:
-    text = str(value).strip().lower()
-    if not text:
-        return False
-    return text not in {"なし", "無", "no", "n", "false", "0"}
-
-
-def count_bench_90kg_sets(training_detail: Any) -> int:
-    text = str(training_detail or "")
-    if not text:
-        return 0
-
-    total = 0
-    for match in re.finditer(r"90\s*kg\s*([0-9,\s]+)", text, flags=re.IGNORECASE):
-        reps_text = match.group(1).strip(" ,")
-        reps = [rep for rep in re.split(r"[,\s]+", reps_text) if rep.isdigit()]
-        total += len(reps)
-
-    if total > 0:
-        return total
-    return len(re.findall(r"90\s*kg", text, flags=re.IGNORECASE))
-
-
-def weekly_label(series: pd.Series) -> pd.Series:
-    return series.dt.to_period("W-SUN").apply(
-        lambda period: f"{period.start_time.month}/{period.start_time.day}〜{period.end_time.month}/{period.end_time.day}"
-    )
 
 
 def score_label(score: Any) -> str:
@@ -466,105 +434,223 @@ def render_score_component_overview(chart_df: pd.DataFrame) -> None:
         components.html(markup, height=1300, scrolling=False)
 
 
-def step_rank_distribution_data(data: pd.DataFrame) -> pd.DataFrame:
-    return (
-        data["歩数ランク"]
-        .value_counts()
-        .reindex(STEP_RANK_ORDER, fill_value=0)
-        .rename_axis("歩数ランク")
-        .reset_index(name="日数")
-    )
+def format_metric_number(value: Any, suffix: str = "") -> str:
+    parsed = parse_number(value, default=None)
+    if parsed is None:
+        return "—"
+    if float(parsed).is_integer():
+        return f"{int(parsed):,}{suffix}"
+    return f"{parsed:,.1f}{suffix}"
 
 
-def weekly_workout_count_data(
-    chart_df: pd.DataFrame,
-    training_counted: Callable[[dict[str, Any] | pd.Series], bool],
-) -> pd.DataFrame:
-    return (
-        chart_df.assign(筋トレ回数=chart_df.apply(training_counted, axis=1).astype(int))
-        .groupby("週", sort=False)["筋トレ回数"]
-        .sum()
-        .reset_index()
-    )
+WORKOUT_NO_TEXTS = {"", "なし", "無し", "無", "false", "no", "n", "0", "休み", "してない", "未実施"}
+WORKOUT_EXPLICIT_NO_TEXTS = WORKOUT_NO_TEXTS - {""}
+WORKOUT_YES_TEXTS = {"あり", "有", "true", "yes", "y", "1", "done", "実施", "した"}
 
 
-def render_static_bar_chart(
-    chart_data: pd.DataFrame,
-    label_column: str,
-    value_column: str,
-    color: str,
-    y_title: str,
-) -> None:
-    width = 900
-    height = 430
-    left = 48
-    right = 24
-    top = 28
-    bottom = 150
-    plot_width = width - left - right
-    plot_height = height - top - bottom
-    count = max(len(chart_data), 1)
-    max_value = max(float(chart_data[value_column].max()), 1.0)
-    slot_width = plot_width / count
-    bar_width = min(slot_width * 0.48, 58)
+def normalized_workout_text(value: Any) -> str:
+    try:
+        if value is None or pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().lower()
 
-    bars: list[str] = []
-    y_ticks: list[str] = []
-    for tick in range(int(max_value) + 1):
-        y = top + plot_height - (tick / max_value) * plot_height
-        y_ticks.append(
-            f"""
-            <line x1="{left}" y1="{y:.1f}" x2="{width - right}" y2="{y:.1f}" stroke="#f0f0f0" />
-            <text x="{left - 10}" y="{y + 4:.1f}" text-anchor="end" font-size="12" fill="#666">{tick}</text>
-            """
+
+def recommendation_priority(target: dict[str, Any]) -> tuple[str, int]:
+    reason = str(target.get("reason", ""))
+    if target.get("target_weight_kg") is not None and any(keyword in reason for keyword in ["重量", "増量"]):
+        return "★★★★★", 5
+    if target.get("target_reps"):
+        return "★★★★☆", 4
+    return "★★★☆☆", 3
+
+
+def pr_candidate_detail(pr: dict[str, Any]) -> str:
+    previous = f" / previous {pr['previous_best']:g}{pr['unit']}" if pr.get("previous_best") else ""
+    return f"{pr.get('label', 'PR候補')}: {pr.get('value', 0):g}{pr.get('unit', '')}{previous}"
+
+
+def workout_display_candidates(
+    prs: list[dict[str, Any]],
+    next_targets: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    by_exercise: dict[str, dict[str, Any]] = {}
+
+    def upsert(exercise: str, stars: str, priority: int, details: list[str]) -> None:
+        key = exercise.strip() or "Workout"
+        current = by_exercise.setdefault(key, {"exercise": key, "stars": stars, "priority": priority, "details": []})
+        if priority > current["priority"]:
+            current["priority"] = priority
+            current["stars"] = stars
+        for detail in details:
+            if detail and detail not in current["details"]:
+                current["details"].append(detail)
+
+    for pr in prs:
+        upsert(str(pr.get("exercise", "Workout")), "★★★★★", 6, [pr_candidate_detail(pr)])
+
+    for target in next_targets:
+        stars, priority = recommendation_priority(target)
+        upsert(
+            str(target.get("exercise", "Workout")),
+            stars,
+            priority,
+            [str(target.get("target", "")), str(target.get("reason", ""))],
         )
 
-    for index, row in enumerate(chart_data.to_dict("records")):
-        label = str(row[label_column])
-        value = int(row[value_column])
-        bar_height = (value / max_value) * plot_height if value > 0 else 0
-        x_center = left + slot_width * index + slot_width / 2
-        x = x_center - bar_width / 2
-        y = top + plot_height - bar_height
-        label_y = top + plot_height + 58
-        bars.append(
-            f"""
-            <rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" height="{bar_height:.1f}" fill="{color}" rx="3" />
-            <text x="{x_center:.1f}" y="{y - 8:.1f}" text-anchor="middle" font-size="14" fill="#333">{value}</text>
-            <text x="{x_center:.1f}" y="{label_y:.1f}" text-anchor="end" font-size="{X_AXIS_LABEL_FONT_SIZE}" fill="#333"
-                  transform="rotate({X_AXIS_LABEL_ANGLE} {x_center:.1f} {label_y:.1f})">{html.escape(label)}</text>
-            """
-        )
+    return sorted(by_exercise.values(), key=lambda candidate: candidate["priority"], reverse=True)[:3]
 
-    components.html(
-        f"""
-        <svg class="static-dashboard-chart" data-static-chart="true" data-chart-version="{STATIC_CHART_VERSION}" viewBox="0 0 {width} {height}"
-             width="100%" height="{height}" role="img" aria-label="{html.escape(y_title)} bar chart">
-          <text x="{left}" y="16" font-size="13" fill="#555">{html.escape(y_title)}</text>
-          {''.join(y_ticks)}
-          <line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_height}" stroke="#d9d9d9" />
-          <line x1="{left}" y1="{top + plot_height}" x2="{width - right}" y2="{top + plot_height}" stroke="#d9d9d9" />
-          {''.join(bars)}
-        </svg>
-        """,
-        height=height + 12,
-        scrolling=False,
-    )
+
+def workout_recommendation_cards(prs: list[dict[str, Any]], next_targets: list[dict[str, Any]]) -> str:
+    candidates = workout_display_candidates(prs, next_targets)
+    if not candidates:
+        return '<p class="bodyos-component-meta">表示できる候補はありません。</p>'
+
+    cards: list[str] = []
+    for candidate in candidates:
+        details = candidate["details"][:2]
+        primary = details[0] if details else ""
+        secondary = details[1] if len(details) > 1 else ""
+        secondary_markup = (
+            f'<div class="bodyos-component-meta">{html.escape(secondary)}</div>' if secondary else ""
+        )
+        cards.append(
+            textwrap.dedent(
+                f"""
+            <div class="bodyos-component-card">
+              <div class="bodyos-component-label">{html.escape(str(candidate['exercise']))}</div>
+              <div class="bodyos-component-rate" style="font-size: 1.35rem;">{candidate['stars']}</div>
+              <div class="bodyos-component-score">{html.escape(primary)}</div>
+              {secondary_markup}
+            </div>
+            """
+            ).strip()
+        )
+    return f'<div class="bodyos-component-grid bodyos-priority-grid">{"".join(cards)}</div>'
+
+
+def workout_marked_performed(latest: pd.Series) -> bool:
+    status = normalized_workout_text(latest.get("筋トレ有無", ""))
+    detail = normalized_workout_text(latest.get("筋トレ内容", ""))
+    if status in WORKOUT_EXPLICIT_NO_TEXTS:
+        return False
+    if detail not in WORKOUT_NO_TEXTS:
+        return True
+    return status in WORKOUT_YES_TEXTS
+
+
+def dashboard_metric_cards(cards: list[dict[str, str]]) -> str:
+    card_markup: list[str] = []
+    for card in cards:
+        caption = card.get("caption", "")
+        caption_markup = f'<div class="bodyos-component-meta">{html.escape(caption)}</div>' if caption else ""
+        card_markup.append(
+            textwrap.dedent(
+                f"""
+            <div class="bodyos-component-card">
+              <div class="bodyos-component-label">{html.escape(card["label"])}</div>
+              <div class="bodyos-component-rate">{html.escape(card["value"])}</div>
+              {caption_markup}
+            </div>
+            """
+            ).strip()
+        )
+    return f'<div class="bodyos-component-grid bodyos-card-grid">{"".join(card_markup)}</div>'
+
+
+def render_html_section(markup: str, fallback_height: int = 700) -> None:
+    if hasattr(st, "html"):
+        st.html(markup)
+    else:
+        components.html(markup, height=fallback_height, scrolling=False)
 
 
 def render_workout_intelligence(latest: pd.Series, data: pd.DataFrame) -> None:
     st.subheader("Workout Intelligence")
+    if not workout_marked_performed(latest):
+        st.write("筋トレ記録がありません。")
+        return
+
     workout_history = data.iloc[:-1].to_dict("records") if len(data) > 1 else []
     workout_insight = analyze_workout(latest.to_dict(), history=workout_history)
     st.write(workout_insight["summary"])
-    if workout_insight["prs"]:
-        for pr in workout_insight["prs"][:3]:
-            previous = f" / previous {pr['previous_best']:g}{pr['unit']}" if pr["previous_best"] else ""
-            st.write(f"- {pr['exercise']}: {pr['label']} {pr['value']:g}{pr['unit']}{previous}")
-    if workout_insight["next_targets"]:
-        st.caption("次回ターゲット")
-        for target in workout_insight["next_targets"][:3]:
-            st.write(f"- {target['exercise']}: {target['target']}")
+    markup = textwrap.dedent(
+        f"""
+        {score_component_styles()}
+        <div class="bodyos-component-section">
+          {workout_recommendation_cards(workout_insight["prs"], workout_insight["next_targets"])}
+        </div>
+        """
+    ).strip()
+    render_html_section(markup, fallback_height=420)
+
+
+def render_body_score_summary(latest: pd.Series, chart_df: pd.DataFrame) -> None:
+    st.subheader("Body Score")
+    markup = textwrap.dedent(
+        f"""
+        {score_component_styles()}
+        <div class="bodyos-component-section">
+          {dashboard_metric_cards([
+              {"label": "最新Body Score", "value": f"{int(latest['Body Score'])}点", "caption": score_label(latest["Body Score"])},
+              {"label": "7日平均Body Score", "value": f"{chart_df['7日平均Body Score'].iloc[-1]:.1f}点"},
+              {"label": "最新モード", "value": str(latest["モード"])},
+          ])}
+        </div>
+        """
+    ).strip()
+    render_html_section(markup, fallback_height=420)
+
+
+def render_todays_metrics(latest: pd.Series, chart_df: pd.DataFrame, this_week: pd.DataFrame) -> None:
+    st.subheader("今日のメトリクス")
+    this_week_average_weight = valid_weight_series(this_week["体重"]).mean() if not this_week.empty else pd.NA
+    markup = textwrap.dedent(
+        f"""
+        {score_component_styles()}
+        <div class="bodyos-component-section">
+          {dashboard_metric_cards([
+              {"label": "体重", "value": format_weight_kg(latest["体重"])},
+              {"label": "睡眠", "value": format_metric_number(latest.get("睡眠時間"), "h")},
+              {"label": "歩数", "value": format_metric_number(latest.get("歩数"), "歩")},
+              {"label": "カロリー", "value": format_metric_number(latest.get("推定摂取カロリー"), "kcal")},
+              {
+                  "label": "タンパク質",
+                  "value": format_component_score(
+                      latest.get("タンパク質スコア"),
+                      SCORE_COMPONENT_MAXIMA["タンパク質スコア"],
+                  ),
+              },
+              {"label": "今週の平均体重", "value": format_optional_number(this_week_average_weight, "kg")},
+              {"label": "7日平均体重", "value": format_optional_number(chart_df["7日平均体重"].iloc[-1], "kg")},
+          ])}
+        </div>
+        """
+    ).strip()
+    render_html_section(markup, fallback_height=700)
+
+
+def render_core_trend_charts(chart_df: pd.DataFrame) -> None:
+    st.subheader("コア推移")
+
+    st.markdown("**Body Score**")
+    st.altair_chart(apply_dashboard_axis_config(body_score_chart(chart_df)), use_container_width=True)
+
+    st.markdown("**体重**")
+    weight_chart = daily_line_chart(chart_df, "有効体重", "体重(kg)", "#1f77b4") + daily_line_chart(
+        chart_df, "7日平均体重", "7日平均体重(kg)", "#888888"
+    ).mark_line(strokeDash=[5, 4], color="#888888")
+    st.altair_chart(apply_dashboard_axis_config(weight_chart.properties(height=300)), use_container_width=True)
+
+    st.markdown("**摂取カロリー**")
+    st.altair_chart(
+        apply_dashboard_axis_config(daily_bar_chart(chart_df, "推定摂取カロリー", "推定摂取カロリー(kcal)", "#59a14f")),
+        use_container_width=True,
+    )
+
+    st.markdown("**歩数**")
+    st.altair_chart(apply_dashboard_axis_config(daily_bar_chart(chart_df, "歩数", "歩数", "#4c78a8")), use_container_width=True)
 
 
 def render_recent_details(latest: pd.Series) -> None:
@@ -625,87 +711,22 @@ def render_dashboard(
     chart_df["体重表示"] = chart_df["体重"].apply(format_weight_kg)
     chart_df["7日平均体重"] = chart_df["有効体重"].rolling(window=7, min_periods=1).mean()
     chart_df["7日平均Body Score"] = chart_df["Body Score"].rolling(window=7, min_periods=1).mean()
-    chart_df["ベンチプレス90kgセット数"] = chart_df["筋トレ内容"].apply(count_bench_90kg_sets)
-    chart_df["飲酒あり"] = chart_df["飲酒"].apply(alcohol_present)
-    chart_df["体調5段階"] = chart_df["体調"].apply(condition_score)
-    chart_df["週"] = weekly_label(pd.to_datetime(chart_df["日付"], errors="coerce"))
 
     today = pd.Timestamp(dt.date.today())
     week_start = today - pd.Timedelta(days=today.weekday())
     this_week = chart_df[pd.to_datetime(chart_df["日付"], errors="coerce") >= week_start]
-    condition_average = chart_df["体調5段階"].dropna().mean()
-
     st.header("ダッシュボード")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric("最新Body Score", f"{int(latest['Body Score'])}点")
-        st.caption(score_label(latest["Body Score"]))
-    c2.metric("7日平均Body Score", f"{chart_df['7日平均Body Score'].iloc[-1]:.1f}点")
-    c3.metric("最新モード", str(latest["モード"]))
-    c4.metric("最新体重", format_weight_kg(latest["体重"]))
-
-    mode_counts = data["モード"].value_counts().reindex(MODES, fill_value=0)
-    m1, m2, m3, m4 = st.columns(4)
-    for metric, mode_name in zip([m1, m2, m3, m4], MODES):
-        metric.metric(f"{mode_name}の日数", f"{int(mode_counts[mode_name])}日")
-
-    st.subheader("Body Score推移")
-    st.altair_chart(apply_dashboard_axis_config(body_score_chart(chart_df)), use_container_width=True)
-
-    render_score_component_overview(chart_df)
-
-    c1, c2, c3, c4 = st.columns(4)
-    this_week_average_weight = valid_weight_series(this_week["体重"]).mean() if not this_week.empty else pd.NA
-    c1.metric("今週の平均体重", format_optional_number(this_week_average_weight, "kg"))
-    c2.metric("7日平均体重", format_optional_number(chart_df["7日平均体重"].iloc[-1], "kg"))
-    c3.metric("平均歩数", f"{data['歩数'].mean():,.0f}歩")
-    c4.metric("平均摂取カロリー", f"{data['推定摂取カロリー'].mean():,.0f}kcal")
-
-    c5, c6, c7, c8 = st.columns(4)
-    c5.metric("平均Body Score", f"{data['Body Score'].mean():.1f}点")
-    c6.metric("筋トレ回数", f"{int(data.apply(training_counted, axis=1).sum())}回")
-    c7.metric("飲酒ありの日数", f"{int(chart_df['飲酒あり'].sum())}日")
-    c8.metric("体調平均", f"{condition_average:.1f}/10" if pd.notna(condition_average) else "-")
-
-    st.subheader("76kg到達予測")
-    st.info(predict_target_date(data, target_weight))
-
-    st.subheader("体重推移")
-    weight_chart = daily_line_chart(chart_df, "有効体重", "体重(kg)", "#1f77b4") + daily_line_chart(
-        chart_df, "7日平均体重", "7日平均体重(kg)", "#888888"
-    ).mark_line(strokeDash=[5, 4], color="#888888")
-    st.altair_chart(apply_dashboard_axis_config(weight_chart.properties(height=300)), use_container_width=True)
-
-    st.subheader("摂取カロリー推移")
-    st.altair_chart(
-        apply_dashboard_axis_config(daily_bar_chart(chart_df, "推定摂取カロリー", "推定摂取カロリー(kcal)", "#59a14f")),
-        use_container_width=True,
-    )
-
-    st.subheader("歩数推移")
-    st.altair_chart(apply_dashboard_axis_config(daily_bar_chart(chart_df, "歩数", "歩数", "#4c78a8")), use_container_width=True)
-
-    st.subheader("歩数ランク別の日数")
-    render_static_bar_chart(step_rank_distribution_data(data), "歩数ランク", "日数", "#4c78a8", "日数")
-
-    st.subheader("週ごとの筋トレ回数")
-    render_static_bar_chart(
-        weekly_workout_count_data(chart_df, training_counted),
-        "週",
-        "筋トレ回数",
-        "#9467bd",
-        "筋トレ回数",
-    )
-
-    st.subheader("ベンチプレス90kgセット数の推移")
-    st.altair_chart(
-        apply_dashboard_axis_config(daily_line_chart(chart_df, "ベンチプレス90kgセット数", "90kgセット数", "#9467bd")),
-        use_container_width=True,
-    )
-
+    render_body_score_summary(latest, chart_df)
+    render_todays_metrics(latest, chart_df, this_week)
     render_workout_intelligence(latest, data)
-    render_recent_details(latest)
+    render_core_trend_charts(chart_df)
     render_history_table(chart_df)
+
+    st.subheader("詳細分析")
+    st.markdown("**76kg到達予測**")
+    st.info(predict_target_date(data, target_weight))
+    render_score_component_overview(chart_df)
+    render_recent_details(latest)
 
     csv = data.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
     st.download_button("CSVダウンロード", csv, "body_recomp_records.csv", "text/csv")

@@ -797,7 +797,9 @@ def normalize_columns(data: pd.DataFrame) -> pd.DataFrame:
         lambda row: substantive_training_detail(row["筋トレ内容"]) or substantive_training_detail(row["筋トレ有無"]),
         axis=1,
     )
+    original_training_status_blank = data["筋トレ有無"].apply(is_blank_value)
     data["筋トレ有無"] = data["筋トレ有無"].apply(normalize_yes_no)
+    data.loc[original_training_status_blank & data["筋トレ内容"].astype(bool), "筋トレ有無"] = "あり"
     data["モード"] = data["モード"].apply(normalize_mode)
 
     return data[COLUMNS]
@@ -899,6 +901,13 @@ if github_storage_enabled():
     st.caption(f"保存先: GitHub `{storage_config['repository']}/{storage_config['path']}` ({storage_config['branch']})")
 else:
     st.caption("保存先: ローカル records.csv（Streamlit Cloudで永続化するにはGitHub保存用のsecretsを設定してください）")
+
+if df.empty:
+    st.info("まだ記録がありません。まずは今日の記録を保存してみましょう。")
+else:
+    df = df.sort_values("日付")
+    df = ensure_body_scores(df)
+    render_dashboard(df, TARGET_WEIGHT, predict_target_date, training_counted)
 
 st.header("今日の記録")
 with st.form("daily_record_form"):
@@ -1064,11 +1073,8 @@ if st.button("ChatGPTログをCSVに追加"):
     except Exception as exc:
         st.error(f"取り込みに失敗しました: {exc}")
 
-if df.empty:
-    st.info("まだ記録がありません。まずは今日の記録を保存してみましょう。")
-else:
-    df = df.sort_values("日付")
-    df = ensure_body_scores(df)
+if not df.empty:
+    st.header("メンテナンス")
     if st.button("Body Scoreを再計算"):
         try:
             df = recalculate_body_scores(df)
@@ -1076,7 +1082,5 @@ else:
             st.success("全レコードのBody Scoreと内訳スコアを最新ロジックで再計算しました。")
         except Exception as exc:
             st.error(f"Body Scoreの再計算に失敗しました: {exc}")
-
-    render_dashboard(df, TARGET_WEIGHT, predict_target_date, training_counted)
 
 st.caption("注意: カロリーは概算です。正確にしたい日は手入力欄を使ってください。")
