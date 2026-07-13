@@ -27,6 +27,7 @@ from data_integrity import (
 from dashboard import render_dashboard
 from food_lookup import calculate_lookup_total, lookup_food
 from food_master_repository import JsonFoodMasterRepository
+from food_master_ui import render_food_master_management
 from food_parser import parse_food_text
 from food_source_models import explicit_user_label_source, internal_nutrition_source
 from food_source_policy import select_nutrition_source
@@ -590,7 +591,13 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
     }
 
 
-def remember_saved_meals(meals: list[tuple[str, str, dict[str, Any]]], used_at: str) -> int:
+def remember_saved_meals(
+    meals: list[tuple[str, str, dict[str, Any]]],
+    *,
+    record_date: str,
+    operation_id: str,
+    used_at: str,
+) -> int:
     """Persist Personal Food Master encounters only for newly saved/imported records."""
     encounter_count = 0
     for meal_type, text, detail in meals:
@@ -605,6 +612,8 @@ def remember_saved_meals(meals: list[tuple[str, str, dict[str, Any]]], used_at: 
                 PERSONAL_FOOD_USER_ID,
                 parsed_foods,
                 meal_type=meal_type,
+                record_date=record_date,
+                operation_id=operation_id,
                 used_at=used_at,
             )
         )
@@ -1149,7 +1158,9 @@ if submitted:
                     ("間食", snacks, snacks_detail),
                     ("仕事中のドリンク", work_drinks, drinks_detail),
                 ],
-                pd.to_datetime(record_date).isoformat(),
+                record_date=record_date.isoformat(),
+                operation_id=f"manual-save:{record_date.isoformat()}",
+                used_at=pd.to_datetime(record_date).isoformat(),
             )
         except Exception as exc:
             encounter_count = 0
@@ -1212,7 +1223,9 @@ if st.button("ChatGPTログをCSVに追加"):
                             ("仕事中のドリンク", "仕事中のドリンク"),
                         ]
                     ],
-                    pd.to_datetime(imported_record["日付"]).isoformat(),
+                    record_date=pd.to_datetime(imported_record["日付"]).date().isoformat(),
+                    operation_id=f"json-import:{pd.to_datetime(imported_record['日付']).date().isoformat()}",
+                    used_at=pd.to_datetime(imported_record["日付"]).isoformat(),
                 )
         except Exception as exc:
             st.warning(f"CSVは保存しましたが、Personal Food Masterの記録に失敗しました: {exc}")
@@ -1240,5 +1253,7 @@ if not df.empty:
             st.success("全レコードのBody Scoreと内訳スコアを最新ロジックで再計算しました。")
         except Exception as exc:
             st.error(f"Body Scoreの再計算に失敗しました: {exc}")
+
+render_food_master_management(PERSONAL_FOOD_REPOSITORY, PERSONAL_FOOD_USER_ID)
 
 st.caption("注意: カロリーは概算です。正確にしたい日は手入力欄を使ってください。")

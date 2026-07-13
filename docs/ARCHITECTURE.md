@@ -93,6 +93,8 @@ The parser understands text structure: delimiters, composite meals, brand contex
 
 PR9 adds a Personal Food Master before seed lookup. It separates append-only food encounters from reusable food records, aliases, source candidates, and usage statistics. Unknown or estimated encounters remain candidates; only reviewed candidates or foods supported by a sufficiently authoritative source become active. The local adapter stores new knowledge independently from `records.csv`, behind a repository interface intended for a future database and multi-user implementation.
 
+Personal Food Master encounter writes are idempotent. A stable fingerprint prevents save retries or repeated imports from incrementing usage more than once, while different fragments on the same date remain separate encounters. The compact Streamlit management section is isolated from the dashboard renderer and works directly through `FoodMasterRepository` for active/candidate review, alias management, linking, and archive actions.
+
 ## Dashboard Layer
 
 The dashboard layer is intentionally separated from app orchestration:

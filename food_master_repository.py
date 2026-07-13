@@ -31,6 +31,10 @@ class FoodMasterRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def get_encounter_by_idempotency(self, user_id: str, idempotency_key: str) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    @abstractmethod
     def list_candidates(self, user_id: str) -> list[dict[str, Any]]:
         raise NotImplementedError
 
@@ -59,7 +63,11 @@ class JsonFoodMasterRepository(FoodMasterRepository):
         temporary_path.replace(self.master_path)
 
     def list_foods(self, user_id: str) -> list[dict[str, Any]]:
-        return [deepcopy(food) for food in self._read_master()["foods"] if food.get("user_id") == user_id]
+        return [
+            deepcopy(food)
+            for food in self._read_master()["foods"]
+            if food.get("owner_user_id", food.get("user_id")) == user_id
+        ]
 
     def get_food(self, user_id: str, food_id: str) -> dict[str, Any] | None:
         for food in self.list_foods(user_id):
@@ -70,13 +78,14 @@ class JsonFoodMasterRepository(FoodMasterRepository):
     def upsert_food(self, user_id: str, food: dict[str, Any]) -> dict[str, Any]:
         stored = deepcopy(food)
         stored["user_id"] = user_id
+        stored["owner_user_id"] = user_id
         stored["updated_at"] = stored.get("updated_at") or utc_now()
         if not stored.get("food_id"):
             raise ValueError("food_id is required")
         payload = self._read_master()
         foods = payload["foods"]
         for index, existing in enumerate(foods):
-            if existing.get("user_id") == user_id and existing.get("food_id") == stored["food_id"]:
+            if existing.get("owner_user_id", existing.get("user_id")) == user_id and existing.get("food_id") == stored["food_id"]:
                 foods[index] = stored
                 break
         else:
@@ -95,10 +104,34 @@ class JsonFoodMasterRepository(FoodMasterRepository):
     def append_encounter(self, user_id: str, encounter: dict[str, Any]) -> dict[str, Any]:
         stored = deepcopy(encounter)
         stored["user_id"] = user_id
+        stored["owner_user_id"] = user_id
+        existing = self.get_encounter_by_idempotency(user_id, str(stored.get("idempotency_key") or ""))
+        if existing is not None:
+            return existing
         self.encounters_path.parent.mkdir(parents=True, exist_ok=True)
         with self.encounters_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(stored, ensure_ascii=False) + "\n")
         return stored
+
+    def get_encounter_by_idempotency(self, user_id: str, idempotency_key: str) -> dict[str, Any] | None:
+        if not idempotency_key or not self.encounters_path.exists():
+            return None
+        try:
+            lines = self.encounters_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        for line in reversed(lines):
+            try:
+                encounter = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(encounter, dict)
+                and encounter.get("owner_user_id", encounter.get("user_id")) == user_id
+                and encounter.get("idempotency_key") == idempotency_key
+            ):
+                return encounter
+        return None
 
     def list_candidates(self, user_id: str) -> list[dict[str, Any]]:
         return [food for food in self.list_foods(user_id) if food.get("status") == "candidate"]

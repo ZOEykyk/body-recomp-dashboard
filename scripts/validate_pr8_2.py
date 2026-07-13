@@ -41,6 +41,9 @@ class FakeStreamlit(types.ModuleType):
     def form(self, *_args, **_kwargs):
         return self
 
+    def expander(self, *_args, **_kwargs):
+        return self
+
     def columns(self, spec, *_args, **_kwargs):
         count = spec if isinstance(spec, int) else len(spec)
         return [self for _ in range(count)]

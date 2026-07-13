@@ -104,6 +104,9 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - Personal Food Master data is separate from `records.csv`: food records, aliases, source candidates, usage statistics, and append-only encounters are stored through `FoodMasterRepository`.
 - A food encounter is not trusted knowledge. Estimated or unresolved food is stored as a candidate; only reviewed candidates or authoritative verified sources may become an active reusable personal food.
 - Food Master writes occur only for newly saved manual records and newly imported JSON records. Normal dashboard loading, CSV history loading, and Body Score recalculation must not rewrite historical rows or backfill encounters.
+- Food Master records use `owner_user_id` as the contract owner field (with legacy `user_id` retained for compatibility), and include scope, category, default quantity/unit, notes, schema version, creator, updater, aliases, review status, and usage statistics. Review statuses are `pending_review`, `reviewed`, or `rejected`.
+- Candidate deduplication uses the exact personal identity tuple: brand, canonical name, variant, and size. Different variants or sizes must remain separate candidates.
+- Encounter records are append-only and carry a stable idempotency key based on owner, record date, meal type, normalized fragment, and save/import operation identity. Replaying the same key must not append a line, create a food, or increment use count.
 - If lookup is unresolved, ambiguous, variant-mismatched, or size-mismatched, it must not invent a trusted value; the existing dictionary/fallback path remains available.
 - Dictionary-based calorie estimates should feel realistic, not perfectly precise.
 - If only part of a meal is detected, unknown items should not silently become 0 kcal.
