@@ -6,6 +6,8 @@
 
 `dashboard.py` is a rendering layer only. It may derive display columns such as labels, rolling averages, and chart helper fields at runtime, but it must not introduce required CSV columns or change the stored record contract.
 
+Raw user records are immutable by default. New parsing, scoring, calorie, or display rules must not silently rewrite historical rows during ordinary app launch. Corrected rules apply to new records, new imports, explicit edits, and records explicitly re-imported by the user. Historical migration requires a separate user-confirmed workflow.
+
 ## Standard JSON Import Shape
 
 Future ChatGPT logs should move toward this shape:
@@ -62,12 +64,31 @@ Future ChatGPT logs should move toward this shape:
 - Manual calories override automatic estimates if available.
 - New CSV columns should be optional unless a migration PR explicitly changes the schema.
 - Existing records must remain readable after normalization.
+- Missing body weight values are not real zero weights. Dashboard averages, rolling averages, charts, and predictions must ignore missing weight values.
+- Meal text that clearly means no meal must be treated as 0 kcal and must not receive fallback calories.
+
+## Missing Weight Rules
+
+For body-weight calculations, the following values are missing:
+
+- `null`
+- empty string
+- `NaN`
+- `0`
+- `"0"`
+- invalid non-numeric values
+
+Weekly, monthly, and seven-day average weight calculations must exclude missing weights from both the numerator and denominator. A week with no valid weight displays `—`; a week with one valid weight displays that one value. Weight charts should not draw a point at zero for missing days, and missing daily weight should display as `—`.
+
+The stored CSV remains backward-compatible. Existing historical rows are not automatically rewritten just because a newer missing-value rule exists.
 
 ## Calorie Data Rules
 
 - Explicit kcal values in meal text have the highest priority.
 - Dictionary-based calorie estimates should feel realistic, not perfectly precise.
 - If only part of a meal is detected, unknown items should not silently become 0 kcal.
+- Zero-meal text such as `なし`, `食べていない`, `未食`, `抜き`, `スキップ`, `朝食なし`, `昼食なし`, `夕食なし`, `晩御飯なし`, and `晩ご飯なし` is an explicit no-meal signal for breakfast, lunch, dinner, and snacks. It should return 0 kcal with no fallback estimate.
+- Unknown non-empty meal text may still use fallback estimation.
 - Manual user-entered calories are authoritative for that meal.
 
 ## Body Score Data Rules

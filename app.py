@@ -20,6 +20,12 @@ from bodyos_standard import (
     calculate_bodyos_score,
     normalize_mode,
 )
+from data_integrity import (
+    is_zero_meal_field,
+    is_zero_meal_text,
+    parse_optional_positive_number,
+    valid_weight_series,
+)
 from dashboard import render_dashboard
 
 DATA_FILE = "records.csv"
@@ -427,6 +433,9 @@ def fallback_kcal_for_unknown_items(meal_type: str, unknown_count: int) -> int:
 
 def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
     """Dictionary-based rough calorie estimate with confidence metadata."""
+    if is_zero_meal_field(meal_type) and is_zero_meal_text(text):
+        return {"kcal": 0, "confidence": "high", "detected_foods": ["zero_meal"], "unknown_items": []}
+
     if not text or not str(text).strip():
         return {"kcal": 0, "confidence": "low", "detected_foods": [], "unknown_items": []}
 
@@ -543,6 +552,11 @@ def parse_number_for_record(field: str, value: Any, errors: list[str], default: 
         errors.append(f"{field}: 数値として読み取れませんでした（入力値: {value}）")
         return default
     return parsed
+
+
+def parse_weight_for_record(value: Any) -> float:
+    parsed = parse_optional_positive_number(value)
+    return parsed if parsed is not None else 0
 
 
 def is_blank_value(value: Any) -> bool:
@@ -716,7 +730,7 @@ def normalize_record(raw: dict[str, Any], record_number: int = 1) -> dict[str, A
     except ValueError as exc:
         errors.append(f"日付: {exc}")
 
-    row["体重"] = parse_number_for_record("体重", row["体重"], errors)
+    row["体重"] = parse_weight_for_record(row["体重"])
     row["歩数"] = int(parse_number_for_record("歩数", row["歩数"], errors))
     row["歩数ランク"] = rank_steps(row["歩数"])
     row["睡眠時間"] = parse_number_for_record("睡眠時間", row["睡眠時間"], errors)
@@ -855,12 +869,16 @@ def upsert_records(data: pd.DataFrame, rows: pd.DataFrame) -> tuple[pd.DataFrame
 
 
 def predict_target_date(data: pd.DataFrame, target_weight: float) -> str:
-    if len(data) < 2:
+    valid_data = data.copy()
+    valid_data["有効体重"] = valid_weight_series(valid_data["体重"])
+    valid_data = valid_data.dropna(subset=["有効体重"])
+
+    if len(valid_data) < 2:
         return "予測には2件以上の記録が必要です。"
 
-    recent = data.tail(min(len(data), 14)).copy()
-    first_weight = float(recent["体重"].iloc[0])
-    latest_weight = float(recent["体重"].iloc[-1])
+    recent = valid_data.tail(min(len(valid_data), 14)).copy()
+    first_weight = float(recent["有効体重"].iloc[0])
+    latest_weight = float(recent["有効体重"].iloc[-1])
     days_elapsed = max((recent["日付"].iloc[-1] - recent["日付"].iloc[0]).days, 1)
     daily_pace = (first_weight - latest_weight) / days_elapsed
 

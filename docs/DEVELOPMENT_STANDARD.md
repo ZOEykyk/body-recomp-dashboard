@@ -42,6 +42,7 @@ A change is done only when:
 - Scope matches the PRD or request.
 - No unrelated refactors are included.
 - Existing CSV records remain readable.
+- Ordinary app launch does not silently rewrite historical records.
 - Japanese and English import keys still work where applicable.
 - Manual user values continue to override automatic estimates.
 - User-facing labels and documentation are consistent.
@@ -64,6 +65,12 @@ For detailed product rules, prefer docs under `docs/` and link them from README 
 ## Backward Compatibility Rule
 
 BodyOS must preserve existing `records.csv` compatibility unless a PR explicitly declares and migrates a breaking schema change.
+
+Historical records are immutable by default:
+
+- New business rules apply to new imports, newly created records, explicit edits, or explicit re-imports.
+- App launch, dashboard rendering, and in-memory display helpers must not save migrated historical values.
+- Any historical migration must be a separate, user-confirmed workflow with clear before/after behavior.
 
 When adding columns:
 
