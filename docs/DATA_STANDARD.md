@@ -84,6 +84,10 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 
 ## Calorie Data Rules
 
+- Meal text should be parsed into structured food items before calorie estimation.
+- `parse_food_text(text, meal_type)` is a pure parser interface and must not mutate inputs or historical records.
+- The food parser may detect item boundaries, quantities, zero-meal text, and explicit nutrition values.
+- The food parser must not own nutrition facts, public lookup data, or Food Master records.
 - Explicit kcal values in meal text have the highest priority.
 - Dictionary-based calorie estimates should feel realistic, not perfectly precise.
 - If only part of a meal is detected, unknown items should not silently become 0 kcal.

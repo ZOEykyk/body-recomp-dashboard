@@ -42,6 +42,8 @@ RECORDS_CSV_PATH = "records.csv"
 
 カロリーは概算です。BodyOSはMyFitnessPalのような精密な栄養記録アプリではなく、日々の記録で「明らかにおかしい」と感じない現実的な目安を出すことを目的にしています。
 
+食事テキストはまず `food_parser.py` の `parse_food_text(text, meal_type=None)` で構造化します。Parserは、区切り文字、複合食、数量、食事なし表現、`223kcal、P12g、F15g、C14g` のような明示栄養値を読み取ります。Parser自体は栄養値やFood Masterを持たず、食品ごとのkcal推定は従来どおり辞書とfallbackで行います。
+
 推定は `food_dictionary.json`、`brand_dictionary.json`、`restaurant_dictionary.json` の辞書を使います。食品を追加したい場合は、アプリ本体へ条件分岐を増やさず、JSON辞書へ `name`、`kcal`、`aliases` を追加してください。
 
 食事テキストに `289 kcal` のような明示的なkcal値が含まれる場合は、その値を最優先します。複数のkcal値がある場合は合計します。

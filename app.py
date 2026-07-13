@@ -21,12 +21,11 @@ from bodyos_standard import (
     normalize_mode,
 )
 from data_integrity import (
-    is_zero_meal_field,
-    is_zero_meal_text,
     parse_optional_positive_number,
     valid_weight_series,
 )
 from dashboard import render_dashboard
+from food_parser import parse_food_text
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
@@ -433,35 +432,58 @@ def fallback_kcal_for_unknown_items(meal_type: str, unknown_count: int) -> int:
 
 def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
     """Dictionary-based rough calorie estimate with confidence metadata."""
-    if is_zero_meal_field(meal_type) and is_zero_meal_text(text):
-        return {"kcal": 0, "confidence": "high", "detected_foods": ["zero_meal"], "unknown_items": []}
+    parsed_foods = parse_food_text(str(text or ""), meal_type=meal_type)
+    if parsed_foods["is_zero_meal"]:
+        return {
+            "kcal": 0,
+            "confidence": "high",
+            "detected_foods": ["zero_meal"],
+            "unknown_items": [],
+            "parsed_foods": parsed_foods,
+        }
 
     if not text or not str(text).strip():
-        return {"kcal": 0, "confidence": "low", "detected_foods": [], "unknown_items": []}
-
-    text = str(text)
-    lowered = normalize_food_text(text)
-    explicit_numbers = re.findall(r"(\d+)\s*kcal", lowered)
-    if explicit_numbers:
         return {
-            "kcal": sum(int(number) for number in explicit_numbers),
+            "kcal": 0,
+            "confidence": "low",
+            "detected_foods": [],
+            "unknown_items": [],
+            "parsed_foods": parsed_foods,
+        }
+
+    explicit_kcal = parsed_foods["explicit_nutrition"].get("calories_kcal")
+    if explicit_kcal is not None:
+        return {
+            "kcal": int(explicit_kcal),
             "confidence": "high",
             "detected_foods": ["explicit_kcal"],
             "unknown_items": [],
+            "parsed_foods": parsed_foods,
         }
 
-    items = parse_meal_items(text)
+    items = parsed_foods["items"] or [
+        {
+            "raw_text": item,
+            "canonical_name": item,
+            "quantity": {"amount": 1, "raw": None},
+        }
+        for item in parse_meal_items(str(text))
+    ]
     detected_foods: list[str] = []
     unknown_items: list[str] = []
     total = 0
 
     for item in items:
-        match = best_food_match(item)
+        item_text = str(item.get("canonical_name") or item.get("raw_text") or "")
+        match = best_food_match(item_text) or best_food_match(str(item.get("raw_text") or ""))
         if not match:
-            unknown_items.append(item)
+            unknown_items.append(str(item.get("raw_text") or item_text))
             continue
         food, alias = match
-        quantity = quantity_for_item(item, alias)
+        quantity_detail = item.get("quantity") if isinstance(item, dict) else {}
+        quantity = quantity_detail.get("amount", 1) if isinstance(quantity_detail, dict) else 1
+        if not quantity_detail or quantity_detail.get("raw") is None:
+            quantity = quantity_for_item(str(item.get("raw_text") or item_text), alias)
         total += int(food["kcal"]) * quantity
         detected_foods.append(str(food["name"]))
 
@@ -486,6 +508,7 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
         "confidence": confidence,
         "detected_foods": detected_foods,
         "unknown_items": unknown_items,
+        "parsed_foods": parsed_foods,
     }
 
 

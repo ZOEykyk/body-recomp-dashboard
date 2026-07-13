@@ -38,6 +38,8 @@ Body Score / Coach feedback
 - `food_dictionary.json`: General food calorie estimates.
 - `brand_dictionary.json`: Brand and convenience food calorie estimates.
 - `restaurant_dictionary.json`: Restaurant-specific calorie estimates.
+- `food_parser.py`: Pure food text parser that converts meal free text into structured food items and explicit nutrition values without owning nutrition lookup data.
+- `food_aliases.py`: Lightweight alias normalization for parser output. It does not store calorie or macro values.
 - `bodyos_standard.py`: Reusable BodyOS Standard v1.0 rule engine for daily scoring and score component maximum-score metadata.
 - `workout_intelligence.py`: Reusable Workout Intelligence v1 parser and training feedback engine.
 - `README.md`: User-facing setup and feature documentation.
@@ -51,13 +53,30 @@ The current storage model is CSV-first. Locally, records are saved to `records.c
 
 1. User records a day manually or pastes ChatGPT JSON.
 2. Input is normalized into BodyOS columns.
-3. Meals are parsed and calories are estimated unless explicit or manual calories are provided.
-4. Workout fields are normalized for consistent training counts.
-5. Workout Intelligence parses workout text for insights without changing the CSV schema.
-6. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
-7. Record is saved to CSV.
-8. `app.py` passes normalized records to `dashboard.py`.
-9. `dashboard.py` renders the dashboard in priority order: Body Score, today's metrics, Workout Intelligence, core trend charts, history, and detailed analysis.
+3. Meals are parsed by `parse_food_text(text, meal_type)` into structured food items and explicit nutrition values.
+4. Calories are estimated from explicit kcal first, then dictionary matching, then fallback estimation unless manual calories are provided.
+5. Workout fields are normalized for consistent training counts.
+6. Workout Intelligence parses workout text for insights without changing the CSV schema.
+7. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
+8. Record is saved to CSV.
+9. `app.py` passes normalized records to `dashboard.py`.
+10. `dashboard.py` renders the dashboard in priority order: Body Score, today's metrics, Workout Intelligence, core trend charts, history, and detailed analysis.
+
+## Nutrition Parser Layer
+
+PR8.1 introduces a parser-first nutrition architecture:
+
+```text
+Meal text
+↓
+food_parser.py
+↓
+structured parsed foods / explicit kcal and PFC
+↓
+existing dictionary and fallback calorie estimator
+```
+
+The parser understands text structure: delimiters, composite meals, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It does not fetch public nutrition data and does not hardcode calorie values. Nutrition lookup remains the responsibility of dictionaries today and a future Food Lookup / Food Master layer later.
 
 ## Dashboard Layer
 
