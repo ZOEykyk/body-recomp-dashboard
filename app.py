@@ -26,14 +26,21 @@ from data_integrity import (
 )
 from dashboard import render_dashboard
 from food_lookup import calculate_lookup_total, lookup_food
+from food_master_repository import JsonFoodMasterRepository
+from food_master_models import meal_content_fingerprint
+from food_master_ui import render_food_master_management
 from food_parser import parse_food_text
 from food_source_models import explicit_user_label_source, internal_nutrition_source
 from food_source_policy import select_nutrition_source
+from personal_food_master import personal_food_source_selection, remember_food_encounters, resolve_personal_food
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
 DEFAULT_GITHUB_REPOSITORY = "ZOEykyk/body-recomp-dashboard"
 DEFAULT_RECORDS_BRANCH = "main"
+PERSONAL_FOOD_USER_ID = "local-default"
+PERSONAL_FOOD_MASTER_FILE = "personal_food_master.json"
+FOOD_ENCOUNTERS_FILE = "food_encounters.jsonl"
 BODY_SCORE_COLUMNS = ["Body Score"] + SCORE_COMPONENTS
 
 REQUIRED_COLUMNS = [
@@ -211,6 +218,11 @@ MEAL_FALLBACK = {
     "間食": 200,
     "仕事中のドリンク": 100,
 }
+
+PERSONAL_FOOD_REPOSITORY = JsonFoodMasterRepository(
+    Path(__file__).with_name(PERSONAL_FOOD_MASTER_FILE),
+    Path(__file__).with_name(FOOD_ENCOUNTERS_FILE),
+)
 
 JSON_KEY_ALIASES = {
     "日付": ["日付", "date", "record_date", "記録日"],
@@ -480,11 +492,24 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
     detected_foods: list[str] = []
     unknown_items: list[str] = []
     nutrition_source_decisions: list[dict[str, Any]] = []
+    personal_foods = PERSONAL_FOOD_REPOSITORY.list_foods(PERSONAL_FOOD_USER_ID)
     total = 0
 
     for item in items:
         item_text = str(item.get("canonical_name") or item.get("raw_text") or "")
-        lookup_result = lookup_food(item)
+        personal_resolution = resolve_personal_food(item, personal_foods)
+        personal_food = personal_resolution.get("food")
+        if personal_food is not None:
+            personal_selection = personal_food_source_selection(personal_food)
+            selected = personal_selection.get("selected")
+            lookup_result = {
+                "matched": bool(selected),
+                "nutrition": selected.get("nutrition") if selected else None,
+                "food": {"canonical_name": personal_food.get("canonical_name")},
+                "source_selection": personal_selection,
+            }
+        else:
+            lookup_result = lookup_food(item)
         if lookup_result["matched"]:
             lookup_total = calculate_lookup_total(lookup_result, item.get("quantity"), item.get("unit"))
             lookup_kcal = lookup_total["calories_kcal"]
@@ -565,6 +590,36 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
         "parsed_foods": parsed_foods,
         "nutrition_source_decisions": nutrition_source_decisions,
     }
+
+
+def remember_saved_meals(
+    meals: list[tuple[str, str, dict[str, Any]]],
+    *,
+    record_date: str,
+    operation_id: str,
+    used_at: str,
+) -> int:
+    """Persist Personal Food Master encounters only for newly saved/imported records."""
+    encounter_count = 0
+    for meal_type, text, detail in meals:
+        if not str(text or "").strip():
+            continue
+        content_operation_id = f"{operation_id}:content:{meal_content_fingerprint(text)}"
+        parsed_foods = detail.get("parsed_foods") if isinstance(detail, dict) else None
+        if not isinstance(parsed_foods, dict):
+            parsed_foods = parse_food_text(str(text), meal_type)
+        encounter_count += len(
+            remember_food_encounters(
+                PERSONAL_FOOD_REPOSITORY,
+                PERSONAL_FOOD_USER_ID,
+                parsed_foods,
+                meal_type=meal_type,
+                record_date=record_date,
+                operation_id=content_operation_id,
+                used_at=used_at,
+            )
+        )
+    return encounter_count
 
 
 def estimate_calories(text: str, meal_type: str = "") -> int:
@@ -1096,6 +1151,22 @@ if submitted:
     df = df.sort_values("日付")
     try:
         save_data(df)
+        try:
+            encounter_count = remember_saved_meals(
+                [
+                    ("朝", breakfast, breakfast_detail),
+                    ("昼", lunch, lunch_detail),
+                    ("夜", dinner, dinner_detail),
+                    ("間食", snacks, snacks_detail),
+                    ("仕事中のドリンク", work_drinks, drinks_detail),
+                ],
+                record_date=record_date.isoformat(),
+                operation_id=f"manual-save:{record_date.isoformat()}",
+                used_at=pd.to_datetime(record_date).isoformat(),
+            )
+        except Exception as exc:
+            encounter_count = 0
+            st.warning(f"CSVは保存しましたが、Personal Food Masterの記録に失敗しました: {exc}")
         st.success(
             f"CSVへ保存しました。合計カロリーは約{estimated_calories:,}kcal、"
             f"Body Scoreは{record['Body Score']}点です。"
@@ -1105,6 +1176,8 @@ if submitted:
             f"間食 {snacks_kcal:,}kcal / ドリンク {drinks_kcal:,}kcal"
         )
         st.write(f"カロリー推定信頼度: {calorie_confidence}")
+        if encounter_count:
+            st.caption(f"Personal Food Masterに{encounter_count}件の食品遭遇を記録しました。")
     except Exception as exc:
         st.error(f"保存に失敗しました: {exc}")
 
@@ -1138,10 +1211,32 @@ if st.button("ChatGPTログをCSVに追加"):
         imported_rows = pd.DataFrame(normalized_records)
         df, added_count, updated_count = upsert_records(df, imported_rows)
         save_data(df)
+        encounter_count = 0
+        try:
+            for imported_record in normalized_records:
+                encounter_count += remember_saved_meals(
+                    [
+                        (meal_type, str(imported_record.get(column, "")), {})
+                        for meal_type, column in [
+                            ("朝", "朝"),
+                            ("昼", "昼"),
+                            ("夜", "夜"),
+                            ("間食", "間食"),
+                            ("仕事中のドリンク", "仕事中のドリンク"),
+                        ]
+                    ],
+                    record_date=pd.to_datetime(imported_record["日付"]).date().isoformat(),
+                    operation_id=f"json-import:{pd.to_datetime(imported_record['日付']).date().isoformat()}",
+                    used_at=pd.to_datetime(imported_record["日付"]).isoformat(),
+                )
+        except Exception as exc:
+            st.warning(f"CSVは保存しましたが、Personal Food Masterの記録に失敗しました: {exc}")
         st.success(
             f"{len(imported_rows)}件のChatGPTログをrecords.csvへ保存しました。"
             f"追加: {added_count}件 / 上書き: {updated_count}件"
         )
+        if encounter_count:
+            st.caption(f"Personal Food Masterに{encounter_count}件の食品遭遇を記録しました。")
     except json.JSONDecodeError as exc:
         st.error(f"JSONの形式を確認してください: {exc}")
     except RecordValidationError as exc:
@@ -1160,5 +1255,7 @@ if not df.empty:
             st.success("全レコードのBody Scoreと内訳スコアを最新ロジックで再計算しました。")
         except Exception as exc:
             st.error(f"Body Scoreの再計算に失敗しました: {exc}")
+
+render_food_master_management(PERSONAL_FOOD_REPOSITORY, PERSONAL_FOOD_USER_ID)
 
 st.caption("注意: カロリーは概算です。正確にしたい日は手入力欄を使ってください。")

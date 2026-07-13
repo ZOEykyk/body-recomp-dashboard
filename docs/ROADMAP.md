@@ -19,6 +19,7 @@
 - PR8.1 Food Parser Foundation
 - PR8.2 Food Lookup Engine
 - PR8.3 Food Source Strategy & Trust Policy
+- PR9 Personal Food Master v1
 - PR8 Body Score AI
 - PR9 Coach AI
 - PR10 Lifestyle Intelligence
