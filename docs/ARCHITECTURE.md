@@ -33,7 +33,7 @@ Body Score / Coach feedback
 ## Main Components
 
 - `app.py`: Streamlit page setup, input forms, JSON import flow, normalization, CSV persistence, GitHub-backed storage, and high-level orchestration.
-- `dashboard.py`: Dashboard rendering layer for metrics, charts, normalized score component cards, improvement priorities, recent details, history tables, and Workout Intelligence display.
+- `dashboard.py`: Dashboard rendering layer for the Dashboard v1.0 information hierarchy, metrics, core trend charts, normalized score component cards, improvement priorities, recent details, history tables, and Workout Intelligence display.
 - `records.csv`: Current source of truth for user records.
 - `food_dictionary.json`: General food calorie estimates.
 - `brand_dictionary.json`: Brand and convenience food calorie estimates.
@@ -57,7 +57,7 @@ The current storage model is CSV-first. Locally, records are saved to `records.c
 6. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
 7. Record is saved to CSV.
 8. `app.py` passes normalized records to `dashboard.py`.
-9. `dashboard.py` renders metrics, charts, normalized score component summaries, Workout Intelligence, and recent details.
+9. `dashboard.py` renders the dashboard in priority order: Body Score, today's metrics, Workout Intelligence, core trend charts, history, and detailed analysis.
 
 ## Dashboard Layer
 
@@ -77,6 +77,19 @@ bodyos_standard.py / workout_intelligence.py
 - `workout_intelligence.py` analyzes workout detail text.
 
 This separation keeps future intelligence work safer by allowing scoring and workout analysis to evolve behind stable interfaces while the Streamlit app remains a thin coordinator.
+
+## Dashboard v1.0 Information Hierarchy
+
+Dashboard v1.0 is organized for quick daily interpretation:
+
+1. Body Score summary.
+2. Today's metrics.
+3. Workout Intelligence Top 3 recommendations.
+4. Core trend charts: Body Score, weight, calories, and steps.
+5. History.
+6. Detailed analysis, including score components and recent details.
+
+Low-value or overly specific charts are intentionally excluded from the primary dashboard. This keeps the page focused without changing stored records, Body Score rules, Workout Intelligence logic, CSV schema, or JSON import behavior.
 
 ## Future Architecture
 
