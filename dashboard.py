@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import math
 import textwrap
 from typing import Any, Callable
 
@@ -110,6 +111,54 @@ def daily_line_chart(data: pd.DataFrame, y_column: str, title: str, color: str =
         .encode(
             x=ordered_daily_x(data),
             y=alt.Y(f"{y_column}:Q", title=title),
+            tooltip=["日付表示", "モード", alt.Tooltip(f"{y_column}:Q", title=title)],
+        )
+    )
+
+
+def weight_axis_domain(data: pd.DataFrame, columns: list[str]) -> list[float] | None:
+    valid_values: list[float] = []
+    for column in columns:
+        if column not in data.columns:
+            continue
+        series = pd.to_numeric(data[column], errors="coerce")
+        valid_values.extend(float(value) for value in series.dropna() if float(value) > 0)
+
+    if not valid_values:
+        return None
+
+    min_weight = min(valid_values)
+    max_weight = max(valid_values)
+    if math.isclose(min_weight, max_weight):
+        return [math.floor(min_weight - 1.5), math.ceil(max_weight + 1.5)]
+
+    observed_range = max_weight - min_weight
+    padding = max(0.5, observed_range * 0.15)
+    y_min = math.floor(min_weight - padding)
+    y_max = math.ceil(max_weight + padding)
+    if y_min >= y_max:
+        y_min = math.floor(min_weight - 1.0)
+        y_max = math.ceil(max_weight + 1.0)
+    return [y_min, y_max]
+
+
+def daily_weight_line_chart(
+    data: pd.DataFrame,
+    y_column: str,
+    title: str,
+    y_domain: list[float] | None,
+    color: str = "#1f77b4",
+) -> alt.Chart:
+    return (
+        alt.Chart(data)
+        .mark_line(point=True, color=color)
+        .encode(
+            x=ordered_daily_x(data),
+            y=alt.Y(
+                f"{y_column}:Q",
+                title=title,
+                scale=alt.Scale(domain=y_domain) if y_domain else alt.Undefined,
+            ),
             tooltip=["日付表示", "モード", alt.Tooltip(f"{y_column}:Q", title=title)],
         )
     )
@@ -638,8 +687,9 @@ def render_core_trend_charts(chart_df: pd.DataFrame) -> None:
     st.altair_chart(apply_dashboard_axis_config(body_score_chart(chart_df)), use_container_width=True)
 
     st.markdown("**体重**")
-    weight_chart = daily_line_chart(chart_df, "有効体重", "体重(kg)", "#1f77b4") + daily_line_chart(
-        chart_df, "7日平均体重", "7日平均体重(kg)", "#888888"
+    weight_domain = weight_axis_domain(chart_df, ["有効体重", "7日平均体重"])
+    weight_chart = daily_weight_line_chart(chart_df, "有効体重", "体重(kg)", weight_domain, "#1f77b4") + daily_weight_line_chart(
+        chart_df, "7日平均体重", "7日平均体重(kg)", weight_domain, "#888888"
     ).mark_line(strokeDash=[5, 4], color="#888888")
     st.altair_chart(apply_dashboard_axis_config(weight_chart.properties(height=300)), use_container_width=True)
 
