@@ -80,7 +80,7 @@ food_lookup.py / reviewed seed catalog
 existing dictionary and fallback calorie estimator
 ```
 
-The parser understands text structure: delimiters, composite meals, brand context, variants, size, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It returns food item contracts designed for lookup (`brand`, `canonical_name`, `variant`, `size`, `quantity`, `unit`, `original_fragment`, `resolution`, `confidence`, `needs_review`, and `explicit_nutrition`). `food_lookup.py` is a separate pure layer: it uses the reviewed local catalog, returns `matched`, `nutrition`, `source`, and `match` metadata, and declines ambiguous matches. Explicit values from the user remain highest priority. Broad Food Master ingestion and runtime public-data fetching remain future work.
+The parser understands text structure: delimiters, composite meals, brand context, variants, size, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It returns food item contracts designed for lookup (`brand`, `canonical_name`, `variant`, `size`, `quantity`, `unit`, `original_fragment`, `resolution`, `confidence`, `needs_review`, and `explicit_nutrition`). `food_lookup.py` is a separate pure layer: it uses the reviewed local catalog, returns `status`, `match_type`, `confidence`, `needs_review`, `candidates`, original parsed identity, `nutrition`, and `source` metadata. It requires brand agreement whenever the parser supplies a brand, declines ambiguous matches, and exposes `calculate_lookup_total()` for basis-aware totals. Explicit values from the user remain highest priority. Broad Food Master ingestion and runtime public-data fetching remain future work.
 
 ## Dashboard Layer
 

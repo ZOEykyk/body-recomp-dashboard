@@ -94,6 +94,10 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - Explicit kcal values in meal text have the highest priority.
 - Food Lookup runs after parsing and before the existing estimate dictionaries. A lookup result is valid only when the reviewed local catalog yields one unambiguous product/menu match.
 - Lookup results expose `matched`, `nutrition`, `source`, and `match` metadata. `source` identifies the official product page or official nutrition table used to validate the local catalog item.
+- Lookup results also expose `status` (`matched`, `ambiguous`, `not_found`, or `skipped_explicit_nutrition`), `match_type`, `confidence`, `needs_review`, `candidates`, and the original parsed identity. Ambiguous results are not selected automatically.
+- A parsed brand is a required match constraint. Brand-less parsed items may use an identity-only match only when it is unique.
+- Catalog entries require category, validity dates, active status, complete nullable nutrition fields, and source verification metadata. Invalid, inactive, expired, or duplicate active entries are excluded from normal lookup.
+- `calculate_lookup_total(lookup_result, quantity, unit)` applies only compatible `per_item`, `per_package`, `per_serving`, `per_100g`, `per_100ml`, or `total` bases. It returns a review-required result rather than guessing for incompatible units.
 - If lookup is unresolved, ambiguous, variant-mismatched, or size-mismatched, it must not invent a trusted value; the existing dictionary/fallback path remains available.
 - Dictionary-based calorie estimates should feel realistic, not perfectly precise.
 - If only part of a meal is detected, unknown items should not silently become 0 kcal.

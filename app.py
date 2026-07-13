@@ -25,7 +25,7 @@ from data_integrity import (
     valid_weight_series,
 )
 from dashboard import render_dashboard
-from food_lookup import lookup_food
+from food_lookup import calculate_lookup_total, lookup_food
 from food_parser import parse_food_text
 
 DATA_FILE = "records.csv"
@@ -479,15 +479,12 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
         item_text = str(item.get("canonical_name") or item.get("raw_text") or "")
         lookup_result = lookup_food(item)
         if lookup_result["matched"]:
-            nutrition = lookup_result["nutrition"] or {}
-            lookup_kcal = nutrition.get("calories_kcal")
-            if lookup_kcal is None or nutrition.get("basis") != "per_item":
+            lookup_total = calculate_lookup_total(lookup_result, item.get("quantity"), item.get("unit"))
+            lookup_kcal = lookup_total["calories_kcal"]
+            if lookup_kcal is None or lookup_total["needs_review"]:
                 unknown_items.append(str(item.get("raw_text") or item_text))
                 continue
-            quantity = item.get("quantity", 1) if isinstance(item, dict) else 1
-            if quantity is None or item.get("unit") in {"g", "ml"}:
-                quantity = 1
-            total += float(lookup_kcal) * float(quantity)
+            total += float(lookup_kcal)
             detected_foods.append(str(lookup_result["food"]["canonical_name"]))
             continue
 
