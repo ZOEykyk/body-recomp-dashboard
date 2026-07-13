@@ -76,7 +76,7 @@ structured parsed foods / explicit kcal and PFC
 existing dictionary and fallback calorie estimator
 ```
 
-The parser understands text structure: delimiters, composite meals, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It does not fetch public nutrition data and does not hardcode calorie values. Nutrition lookup remains the responsibility of dictionaries today and a future Food Lookup / Food Master layer later.
+The parser understands text structure: delimiters, composite meals, brand context, variants, size, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It returns food item contracts designed for future lookup (`brand`, `canonical_name`, `variant`, `size`, `quantity`, `unit`, `original_fragment`, `resolution`, `confidence`, `needs_review`, and `explicit_nutrition`). It does not fetch public nutrition data and does not hardcode calorie values. Nutrition lookup remains the responsibility of dictionaries today and a future Food Lookup / Food Master layer later.
 
 ## Dashboard Layer
 

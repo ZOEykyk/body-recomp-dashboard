@@ -465,7 +465,8 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
         {
             "raw_text": item,
             "canonical_name": item,
-            "quantity": {"amount": 1, "raw": None},
+            "quantity": 1,
+            "quantity_detail": {"amount": 1, "raw": None},
         }
         for item in parse_meal_items(str(text))
     ]
@@ -480,10 +481,14 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
             unknown_items.append(str(item.get("raw_text") or item_text))
             continue
         food, alias = match
-        quantity_detail = item.get("quantity") if isinstance(item, dict) else {}
-        quantity = quantity_detail.get("amount", 1) if isinstance(quantity_detail, dict) else 1
+        quantity_detail = item.get("quantity_detail") if isinstance(item, dict) else {}
+        quantity = item.get("quantity", 1) if isinstance(item, dict) else 1
+        if quantity is None:
+            quantity = 1
         if not quantity_detail or quantity_detail.get("raw") is None:
             quantity = quantity_for_item(str(item.get("raw_text") or item_text), alias)
+        elif quantity_detail.get("unit") in {"g", "ml"}:
+            quantity = 1
         total += int(food["kcal"]) * quantity
         detected_foods.append(str(food["name"]))
 
