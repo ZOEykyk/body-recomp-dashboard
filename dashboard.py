@@ -130,10 +130,10 @@ def weight_axis_domain(data: pd.DataFrame, columns: list[str]) -> list[float] | 
     min_weight = min(valid_values)
     max_weight = max(valid_values)
     if math.isclose(min_weight, max_weight):
-        return [math.floor(min_weight - 2.0), math.ceil(max_weight + 2.0)]
+        return [math.floor(min_weight - 1.5), math.ceil(max_weight + 1.5)]
 
     observed_range = max_weight - min_weight
-    padding = max(1.0, observed_range * 0.15)
+    padding = max(0.5, observed_range * 0.15)
     y_min = math.floor(min_weight - padding)
     y_max = math.ceil(max_weight + padding)
     if y_min >= y_max:

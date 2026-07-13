@@ -10,9 +10,10 @@ The updated weight chart derives its y-axis range from valid daily weight and 7-
 
 | Scenario | Expected after domain | Result |
 | --- | --- | --- |
+| `range_83_9_84_2` | 83kg to 85kg | Passed |
 | `range_83_84` | 82kg to 85kg | Passed |
 | `range_76_83` | 75kg to 85kg | Passed |
-| `one_valid` | Single valid weight with +/-2kg padding | Passed |
+| `one_valid` | Single valid weight with +/-1.5kg padding, rounded to 82kg to 86kg | Passed |
 | `mixed_missing_zero` | Zero and missing values excluded | Passed |
 | `no_valid` | Existing empty-state behavior preserved | Passed |
 
@@ -20,6 +21,7 @@ The updated weight chart derives its y-axis range from valid daily weight and 7-
 
 | Scenario | Desktop Before | Desktop After | Mobile Before | Mobile After |
 | --- | --- | --- | --- | --- |
+| 83.9-84.2kg | [before](before_range_83_9_84_2_desktop.png) | [after](after_range_83_9_84_2_desktop.png) | [before](before_range_83_9_84_2_mobile.png) | [after](after_range_83_9_84_2_mobile.png) |
 | 83.1-84.0kg | [before](before_range_83_84_desktop.png) | [after](after_range_83_84_desktop.png) | [before](before_range_83_84_mobile.png) | [after](after_range_83_84_mobile.png) |
 | 76.8-83.7kg | [before](before_range_76_83_desktop.png) | [after](after_range_76_83_desktop.png) | [before](before_range_76_83_mobile.png) | [after](after_range_76_83_mobile.png) |
 | One valid weight | [before](before_one_valid_desktop.png) | [after](after_one_valid_desktop.png) | [before](before_one_valid_mobile.png) | [after](after_one_valid_mobile.png) |
