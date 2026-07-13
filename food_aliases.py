@@ -65,6 +65,7 @@ FOOD_ALIAS_CATALOG: list[dict[str, Any]] = [
 ]
 
 AMBIGUOUS_MEAL_KEYWORDS = ["bbq", "飲み会", "少量", "盛り合わせ", "軽く", "いろいろ"]
+SAFE_COMPOUND_TOKENS = ["GRAB&GO"]
 
 
 def normalize_food_name(value: Any) -> str:
@@ -86,6 +87,7 @@ def known_product_phrases() -> list[str]:
     for entry in FOOD_ALIAS_CATALOG:
         phrases.append(str(entry["canonical_name"]))
         phrases.extend(str(alias) for alias in entry.get("aliases", []))
+    phrases.extend(SAFE_COMPOUND_TOKENS)
     return sorted(set(phrases), key=len, reverse=True)
 
 

@@ -44,6 +44,9 @@ Body Score / Coach feedback
 - `food_lookup_catalog.json`: Small reviewed catalog of official product/menu nutrition facts. It is local data, not a runtime web fetch or a broad Food Master database.
 - `food_source_models.py`: One shared metadata contract for every nutrition source.
 - `food_source_policy.py`: Pure deterministic source-priority, freshness, and conflict-resolution policy.
+- `food_master_models.py`: Personal Food Master record and encounter contracts.
+- `food_master_repository.py`: Repository interface plus the local JSON/JSONL adapter for future database migration.
+- `personal_food_master.py`: Personal identity resolution, candidate creation, promotion, usage tracking, and encounter logging.
 - `bodyos_standard.py`: Reusable BodyOS Standard v1.0 rule engine for daily scoring and score component maximum-score metadata.
 - `workout_intelligence.py`: Reusable Workout Intelligence v1 parser and training feedback engine.
 - `README.md`: User-facing setup and feature documentation.
@@ -81,10 +84,14 @@ food_lookup.py / reviewed seed catalog
 ↓
 food_source_policy.py
 ↓
+Personal Food Master candidate / alias resolution
+↓
 existing dictionary and fallback calorie estimator
 ```
 
 The parser understands text structure: delimiters, composite meals, brand context, variants, size, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It returns food item contracts designed for lookup (`brand`, `canonical_name`, `variant`, `size`, `quantity`, `unit`, `original_fragment`, `resolution`, `confidence`, `needs_review`, and `explicit_nutrition`). `food_lookup.py` is a separate pure layer: it uses the reviewed local catalog, returns `status`, `match_type`, `confidence`, `needs_review`, `candidates`, original parsed identity, `nutrition`, and source-selection metadata. `food_source_policy.py` ranks explicit labels first, then current official sources, reviewed data, references, legacy dictionaries, and fallback estimates. It excludes rejected, superseded, expired, or out-of-validity sources and leaves equal-priority conflicts unresolved for review. Explicit values from the user remain highest priority. Broad Food Master ingestion and runtime public-data fetching remain future work.
+
+PR9 adds a Personal Food Master before seed lookup. It separates append-only food encounters from reusable food records, aliases, source candidates, and usage statistics. Unknown or estimated encounters remain candidates; only reviewed candidates or foods supported by a sufficiently authoritative source become active. The local adapter stores new knowledge independently from `records.csv`, behind a repository interface intended for a future database and multi-user implementation.
 
 ## Dashboard Layer
 

@@ -101,6 +101,9 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - Every nutrition source uses the shared `food_source_models.py` contract: `source_id`, `source_type`, `publisher`, `source_ref`, `captured_at`, `verified_at`, `valid_from`, `valid_to`, `product_version`, `reviewer`, `verification_status`, `confidence`, and `notes`.
 - Default source priority is: explicit user label, official product page, official nutrition table, official API/catalog, BodyOS verified, user verified, general reference, legacy dictionary, then fallback estimate.
 - Rejected, superseded, expired, or out-of-validity sources cannot be selected. Stale selected sources and conflicting values remain reviewable through `needs_review`; equal-priority conflicting values are not selected automatically.
+- Personal Food Master data is separate from `records.csv`: food records, aliases, source candidates, usage statistics, and append-only encounters are stored through `FoodMasterRepository`.
+- A food encounter is not trusted knowledge. Estimated or unresolved food is stored as a candidate; only reviewed candidates or authoritative verified sources may become an active reusable personal food.
+- Food Master writes occur only for newly saved manual records and newly imported JSON records. Normal dashboard loading, CSV history loading, and Body Score recalculation must not rewrite historical rows or backfill encounters.
 - If lookup is unresolved, ambiguous, variant-mismatched, or size-mismatched, it must not invent a trusted value; the existing dictionary/fallback path remains available.
 - Dictionary-based calorie estimates should feel realistic, not perfectly precise.
 - If only part of a meal is detected, unknown items should not silently become 0 kcal.
