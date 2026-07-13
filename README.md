@@ -42,11 +42,11 @@ RECORDS_CSV_PATH = "records.csv"
 
 カロリーは概算です。BodyOSはMyFitnessPalのような精密な栄養記録アプリではなく、日々の記録で「明らかにおかしい」と感じない現実的な目安を出すことを目的にしています。
 
-食事テキストはまず `food_parser.py` の `parse_food_text(text, meal_type=None)` で構造化します。続いて `food_lookup.py` が小規模の検証済みカタログを照合し、既知の市販品・メニューには公式出典付きの栄養値を使います。Parserは、区切り文字、複合食、数量、食事なし表現、`223kcal、P12g、F15g、C14g` のような明示栄養値を読み取ります。Parser自体は栄養値やFood Masterを持ちません。
+食事テキストはまず `food_parser.py` の `parse_food_text(text, meal_type=None)` で構造化します。続いて `food_lookup.py` が小規模の検証済みカタログを照合し、既知の市販品・メニューには公式出典付きの栄養値を使います。`food_source_policy.py` は明示ラベル、公式情報、検証済み情報、既存辞書、fallbackの優先順位・鮮度・競合を決定します。Parserは、区切り文字、複合食、数量、食事なし表現、`223kcal、P12g、F15g、C14g` のような明示栄養値を読み取ります。Parser自体は栄養値やFood Masterを持ちません。
 
 `food_lookup_catalog.json` は公式商品ページまたは公式栄養表を出典として持つ小規模なlookupカタログです。食品名・ブランド・variant・sizeが一意に照合できるときだけ利用します。照合できない場合は、既存の `food_dictionary.json`、`brand_dictionary.json`、`restaurant_dictionary.json` の辞書とfallbackを使います。食品を追加したい場合は、アプリ本体へ条件分岐を増やさず、対応するJSONカタログへ追加してください。
 
-食事テキストに `289 kcal` のような明示的なkcal値が含まれる場合は、その値を最優先します。複数のkcal値がある場合は合計します。
+食事テキストに `289 kcal` のような明示的なkcal値が含まれる場合は、その値を最優先します。複数のkcal値がある場合は合計します。これは食べた特定パッケージのラベル値として扱われ、公式値や推定値で黙って置き換えません。異なるsourceの栄養値が競合する場合は、優先sourceを示したうえでreview対象として残します。
 
 `ゆで卵2個`、`ジョンソンヴィル2本`、`おにぎり2個` のような数量は、辞書の1個あたり推定値に個数を掛けて計算します。括弧や中黒で区切られた `ベーグル（卵1個・有塩バター7g）` のような複合入力も、食品ごとに分解して推定します。
 

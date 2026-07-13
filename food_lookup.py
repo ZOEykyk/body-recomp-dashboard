@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from food_aliases import normalize_food_name
+from food_source_models import normalize_source_metadata, source_metadata_errors
+from food_source_policy import select_nutrition_source
 
 
 FOOD_LOOKUP_VERSION = "1.1"
@@ -92,14 +94,9 @@ def validate_catalog(catalog: Any) -> dict[str, Any]:
         if not _nutrition_is_valid(item.get("nutrition")):
             warnings.append(f"catalog[{index}]: invalid nutrition")
             continue
-        if not isinstance(source, dict) or not all(source.get(field) for field in ("source_type", "publisher", "url")):
-            warnings.append(f"catalog[{index}]: missing source metadata")
-            continue
-        if not source.get("verified_on"):
-            warnings.append(f"catalog[{index}]: missing source verified date")
-            continue
-        if _parse_date(source.get("verified_on")) is None:
-            warnings.append(f"catalog[{index}]: invalid source verified date")
+        source_errors = source_metadata_errors(source, require_reference=True)
+        if source_errors:
+            warnings.append(f"catalog[{index}]: {'; '.join(source_errors)}")
             continue
         valid_indexes.add(index)
         item_ids.setdefault(str(item["id"]), []).append(index)
@@ -172,6 +169,7 @@ def _result(
     reason: str | None = None,
     candidates: list[dict[str, Any]] | None = None,
     candidate: dict[str, Any] | None = None,
+    as_of: dt.date | None = None,
 ) -> dict[str, Any]:
     original_identity = _original_identity(item)
     matched = status == "matched"
@@ -196,7 +194,14 @@ def _result(
             else None
         ),
         "nutrition": deepcopy(candidate.get("nutrition")) if candidate is not None else None,
-        "source": deepcopy(candidate.get("source")) if candidate is not None else None,
+        "source": normalize_source_metadata(candidate.get("source")) if candidate is not None else None,
+        "source_selection": (
+            select_nutrition_source(
+                [{"source": candidate.get("source"), "nutrition": candidate.get("nutrition")}], as_of=as_of
+            )
+            if candidate is not None
+            else None
+        ),
         "original_identity": original_identity,
         "input": original_identity,
     }
@@ -290,6 +295,7 @@ def lookup_food(
         confidence=confidence,
         needs_review=False,
         candidate=candidate,
+        as_of=today,
     )
 
 

@@ -27,6 +27,8 @@ from data_integrity import (
 from dashboard import render_dashboard
 from food_lookup import calculate_lookup_total, lookup_food
 from food_parser import parse_food_text
+from food_source_models import explicit_user_label_source, internal_nutrition_source
+from food_source_policy import select_nutrition_source
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
@@ -454,12 +456,16 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
 
     explicit_kcal = parsed_foods["explicit_nutrition"].get("calories_kcal")
     if explicit_kcal is not None:
+        explicit_selection = select_nutrition_source(
+            [{"source": explicit_user_label_source(notes="Explicit nutrition extracted from meal text."), "nutrition": parsed_foods["explicit_nutrition"]}]
+        )
         return {
             "kcal": int(explicit_kcal),
             "confidence": "high",
             "detected_foods": ["explicit_kcal"],
             "unknown_items": [],
             "parsed_foods": parsed_foods,
+            "nutrition_source_decisions": [explicit_selection],
         }
 
     items = parsed_foods["items"] or [
@@ -473,6 +479,7 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
     ]
     detected_foods: list[str] = []
     unknown_items: list[str] = []
+    nutrition_source_decisions: list[dict[str, Any]] = []
     total = 0
 
     for item in items:
@@ -486,6 +493,8 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
                 continue
             total += float(lookup_kcal)
             detected_foods.append(str(lookup_result["food"]["canonical_name"]))
+            if lookup_result["source_selection"]:
+                nutrition_source_decisions.append(lookup_result["source_selection"])
             continue
 
         match = best_food_match(item_text) or best_food_match(str(item.get("raw_text") or ""))
@@ -503,10 +512,38 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
             quantity = 1
         total += int(food["kcal"]) * quantity
         detected_foods.append(str(food["name"]))
+        nutrition_source_decisions.append(
+            select_nutrition_source(
+                [
+                    {
+                        "source": internal_nutrition_source(
+                            "legacy_dictionary",
+                            f"legacy-dictionary:{food['name']}",
+                            notes="Existing BodyOS dictionary estimate.",
+                        ),
+                        "nutrition": {"calories_kcal": int(food["kcal"]), "basis": "per_item"},
+                    }
+                ]
+            )
+        )
 
     if total == 0 and meal_type in MEAL_FALLBACK:
         total = MEAL_FALLBACK[meal_type]
         confidence = "low"
+        nutrition_source_decisions.append(
+            select_nutrition_source(
+                [
+                    {
+                        "source": internal_nutrition_source(
+                            "fallback_estimate",
+                            f"fallback-estimate:{meal_type}",
+                            notes="Meal-type fallback estimate for unresolved food text.",
+                        ),
+                        "nutrition": {"calories_kcal": total, "basis": "total"},
+                    }
+                ]
+            )
+        )
     else:
         total += fallback_kcal_for_unknown_items(meal_type, len(unknown_items))
         item_count = max(len(items), 1)
@@ -526,6 +563,7 @@ def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
         "detected_foods": detected_foods,
         "unknown_items": unknown_items,
         "parsed_foods": parsed_foods,
+        "nutrition_source_decisions": nutrition_source_decisions,
     }
 
 
