@@ -14,6 +14,7 @@
 ## Milestone M2 Intelligence
 
 - PR7 Workout Intelligence v1
+- PR7.2 Score Component Normalization & UI Refresh
 - PR8 Body Score AI
 - PR9 Coach AI
 - PR10 Lifestyle Intelligence

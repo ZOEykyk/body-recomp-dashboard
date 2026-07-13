@@ -822,12 +822,13 @@ def load_data() -> pd.DataFrame:
         loaded["日付"] = pd.to_datetime(loaded["日付"], errors="coerce")
         loaded = loaded.dropna(subset=["日付"])
         for column in NUMERIC_COLUMNS:
-            loaded[column] = pd.to_numeric(loaded[column], errors="coerce").fillna(0)
+            loaded[column] = pd.to_numeric(loaded[column], errors="coerce")
+            if column not in SCORE_COMPONENTS:
+                loaded[column] = loaded[column].fillna(0)
         loaded["歩数"] = loaded["歩数"].astype(int)
         loaded["推定摂取カロリー"] = loaded["推定摂取カロリー"].astype(int)
         loaded["今日の採点"] = loaded["今日の採点"].astype(int)
-        for column in BODY_SCORE_COLUMNS:
-            loaded[column] = loaded[column].astype(int)
+        loaded["Body Score"] = loaded["Body Score"].fillna(0).astype(int)
         loaded["モード"] = loaded["モード"].apply(normalize_mode)
         loaded["歩数ランク"] = loaded["歩数"].apply(rank_steps)
         loaded = ensure_body_scores(loaded)

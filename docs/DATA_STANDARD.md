@@ -95,6 +95,25 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 
 Body Score should be recalculable from stored records. Imported manual Body Score values may be preserved separately, but current dashboard logic should prefer the app's latest calculated score when recalculating.
 
+Score component raw values remain stored as raw points in the CSV. The maximum score for each component is defined once in `bodyos_standard.py` as `SCORE_COMPONENT_MAXIMA`:
+
+- `体重スコア`: 15
+- `食事スコア`: 20
+- `タンパク質スコア`: 15
+- `歩数スコア`: 10
+- `筋トレスコア`: 10
+- `睡眠スコア`: 10
+- `体調スコア`: 10
+- `飲酒スコア`: 10
+
+Dashboard component achievement percentages are render-time derived values:
+
+```text
+achievement_rate = actual_score / maximum_score * 100
+```
+
+The derived percentage is bounded between 0% and 100%. Missing or not-applicable component values display as `—` and must not be silently converted to 0%. These derived percentages are not stored in `records.csv` and do not change Body Score calculation rules.
+
 ## Workout Intelligence Data Rules
 
 `workout_intelligence.py` defines Workout Intelligence v1. The public interface is:
@@ -133,6 +152,7 @@ For current Streamlit and CSV compatibility, the result also includes top-level 
 - `Body Score`
 - score component columns such as `体重スコア`, `食事スコア`, and `飲酒スコア`
 - `components`, a nested dictionary containing the same component breakdown
+- `overall.component_max_scores`, the shared maximum-score metadata for interpreting component achievement rates
 
 Future app, API, and AI Coach code should call this interface instead of reimplementing daily evaluation rules.
 

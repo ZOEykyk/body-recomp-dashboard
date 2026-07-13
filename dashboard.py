@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from bodyos_standard import MODES, SCORE_COMPONENTS, condition_score
+from bodyos_standard import MODES, SCORE_COMPONENTS, SCORE_COMPONENT_MAXIMA, condition_score
 from data_integrity import format_optional_number, format_weight_kg, valid_weight_series
 from workout_intelligence import analyze_workout
 
@@ -25,6 +25,16 @@ SCORE_LABELS = [
     (60, "🟠 Needs Attention", "#f2994a"),
     (0, "🔴 Recovery Needed", "#d62728"),
 ]
+SCORE_COMPONENT_LABELS = {
+    "体重スコア": "体重",
+    "食事スコア": "食事",
+    "タンパク質スコア": "タンパク質",
+    "歩数スコア": "歩数",
+    "筋トレスコア": "筋トレ",
+    "睡眠スコア": "睡眠",
+    "体調スコア": "体調",
+    "飲酒スコア": "飲酒",
+}
 
 
 def parse_number(value: Any, default: float = 0) -> float:
@@ -164,6 +174,136 @@ def body_score_chart(data: pd.DataFrame) -> alt.LayerChart:
         tooltip=["日付表示", alt.Tooltip("7日平均Body Score:Q", format=".1f")],
     )
     return (score_line + average_line + score_points).properties(height=320)
+
+
+def optional_score(value: Any) -> float | None:
+    try:
+        if value is None or pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str) and not value.strip():
+        return None
+    parsed = parse_number(value, default=None)
+    return parsed if parsed is not None else None
+
+
+def achievement_rate(score: Any, maximum: int) -> float | None:
+    actual = optional_score(score)
+    if actual is None or maximum <= 0:
+        return None
+    return max(0.0, min(100.0, actual / maximum * 100))
+
+
+def format_component_score(score: Any, maximum: int) -> str:
+    actual = optional_score(score)
+    if actual is None:
+        return "—"
+    return f"{actual:g} / {maximum}"
+
+
+def format_percentage(value: Any) -> str:
+    try:
+        if value is None or pd.isna(value):
+            return "—"
+    except (TypeError, ValueError):
+        pass
+    return f"{float(value):.0f}%"
+
+
+def component_rate_series(data: pd.DataFrame, component: str) -> pd.Series:
+    maximum = SCORE_COMPONENT_MAXIMA[component]
+    return data[component].apply(lambda value: achievement_rate(value, maximum))
+
+
+def seven_day_average_percentage(data: pd.DataFrame, component: str) -> float | None:
+    valid_rates = component_rate_series(data, component).dropna()
+    if valid_rates.empty:
+        return None
+    return float(valid_rates.tail(7).mean())
+
+
+def component_trend(data: pd.DataFrame, component: str) -> str:
+    valid_rates = component_rate_series(data, component).dropna()
+    if len(valid_rates) < 8:
+        return "データ不足"
+
+    recent = valid_rates.tail(7).mean()
+    previous = valid_rates.iloc[:-7].tail(7).mean()
+    if pd.isna(previous):
+        return "データ不足"
+
+    delta = recent - previous
+    if delta >= 3:
+        return "↑ improving"
+    if delta <= -3:
+        return "↓ declining"
+    return "→ stable"
+
+
+def score_component_rows(chart_df: pd.DataFrame) -> list[dict[str, Any]]:
+    latest = chart_df.iloc[-1]
+    rows: list[dict[str, Any]] = []
+    for component in SCORE_COMPONENTS:
+        maximum = SCORE_COMPONENT_MAXIMA[component]
+        actual = latest.get(component)
+        current_rate = achievement_rate(actual, maximum)
+        rows.append(
+            {
+                "component": component,
+                "label": SCORE_COMPONENT_LABELS.get(component, component.replace("スコア", "")),
+                "actual": actual,
+                "maximum": maximum,
+                "current_rate": current_rate,
+                "seven_day_average": seven_day_average_percentage(chart_df, component),
+                "trend": component_trend(chart_df, component),
+            }
+        )
+    return rows
+
+
+def render_improvement_priorities(rows: list[dict[str, Any]]) -> None:
+    st.markdown("#### 改善優先項目")
+    priorities = sorted(
+        [row for row in rows if row["seven_day_average"] is not None],
+        key=lambda row: row["seven_day_average"],
+    )[:3]
+    if not priorities:
+        st.write("—")
+        return
+
+    columns = st.columns(len(priorities))
+    for index, row in enumerate(priorities, start=1):
+        with columns[index - 1]:
+            st.metric(
+                f"{index}. {row['label']}",
+                format_percentage(row["seven_day_average"]),
+                row["trend"],
+            )
+
+
+def render_score_component_cards(rows: list[dict[str, Any]]) -> None:
+    st.markdown("#### 最新コンポーネント")
+    columns = st.columns(4)
+    for index, row in enumerate(rows):
+        with columns[index % 4]:
+            with st.container(border=True):
+                current_rate = row["current_rate"]
+                st.markdown(f"**{row['label']}**")
+                st.write(format_component_score(row["actual"], row["maximum"]))
+                st.metric("達成率", format_percentage(current_rate), row["trend"])
+                st.caption(f"7日平均 {format_percentage(row['seven_day_average'])}")
+                if current_rate is None:
+                    st.caption("達成率データなし")
+                else:
+                    st.progress(current_rate / 100)
+
+
+def render_score_component_overview(chart_df: pd.DataFrame) -> None:
+    st.subheader("スコアコンポーネント")
+    rows = score_component_rows(chart_df)
+    render_improvement_priorities(rows)
+    render_score_component_cards(rows)
 
 
 def step_rank_distribution_data(data: pd.DataFrame) -> pd.DataFrame:
@@ -352,26 +492,7 @@ def render_dashboard(
     st.subheader("Body Score推移")
     st.altair_chart(apply_dashboard_axis_config(body_score_chart(chart_df)), use_container_width=True)
 
-    st.subheader("各スコア内訳の推移")
-    score_component_chart = (
-        alt.Chart(
-            chart_df.melt(
-                id_vars=["Daily Label", "日付表示"],
-                value_vars=SCORE_COMPONENTS,
-                var_name="スコア",
-                value_name="点数",
-            )
-        )
-        .mark_line(point=True)
-        .encode(
-            x=ordered_daily_x(chart_df),
-            y=alt.Y("点数:Q", title="点数"),
-            color=alt.Color("スコア:N", legend=alt.Legend(title="内訳")),
-            tooltip=["日付表示", "スコア", "点数"],
-        )
-        .properties(height=280)
-    )
-    st.altair_chart(apply_dashboard_axis_config(score_component_chart), use_container_width=True)
+    render_score_component_overview(chart_df)
 
     c1, c2, c3, c4 = st.columns(4)
     this_week_average_weight = valid_weight_series(this_week["体重"]).mean() if not this_week.empty else pd.NA
