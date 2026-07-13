@@ -90,7 +90,7 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - The food parser must not own nutrition facts, public lookup data, or Food Master records.
 - Parsed food items expose `brand`, `canonical_name`, `variant`, `size`, `quantity`, `unit`, `original_fragment`, `resolution`, `confidence`, `needs_review`, and `explicit_nutrition` for future Food Lookup use.
 - Parser resolution values distinguish `alias_exact`, `normalized_exact`, `brand_context`, and `unresolved`. Unresolved or ambiguous foods must preserve the original fragment and set `needs_review=true`.
-- Explicit nutrition extracted from user text carries `basis` and `value_origin="explicit_text"`. General nutrition source management is reserved for a future Food Lookup/Food Master layer.
+- Explicit nutrition extracted from user text carries `basis` and `value_origin="explicit_text"`. It maps to the `explicit_user_label` source type and is never silently replaced by official or estimated data.
 - Explicit kcal values in meal text have the highest priority.
 - Food Lookup runs after parsing and before the existing estimate dictionaries. A lookup result is valid only when the reviewed local catalog yields one unambiguous product/menu match.
 - Lookup results expose `matched`, `nutrition`, `source`, and `match` metadata. `source` identifies the official product page or official nutrition table used to validate the local catalog item.
@@ -98,6 +98,9 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - A parsed brand is a required match constraint. Brand-less parsed items may use an identity-only match only when it is unique.
 - Catalog entries require category, validity dates, active status, complete nullable nutrition fields, and source verification metadata. Invalid, inactive, expired, or duplicate active entries are excluded from normal lookup.
 - `calculate_lookup_total(lookup_result, quantity, unit)` applies only compatible `per_item`, `per_package`, `per_serving`, `per_100g`, `per_100ml`, or `total` bases. It returns a review-required result rather than guessing for incompatible units.
+- Every nutrition source uses the shared `food_source_models.py` contract: `source_id`, `source_type`, `publisher`, `source_ref`, `captured_at`, `verified_at`, `valid_from`, `valid_to`, `product_version`, `reviewer`, `verification_status`, `confidence`, and `notes`.
+- Default source priority is: explicit user label, official product page, official nutrition table, official API/catalog, BodyOS verified, user verified, general reference, legacy dictionary, then fallback estimate.
+- Rejected, superseded, expired, or out-of-validity sources cannot be selected. Stale selected sources and conflicting values remain reviewable through `needs_review`; equal-priority conflicting values are not selected automatically.
 - If lookup is unresolved, ambiguous, variant-mismatched, or size-mismatched, it must not invent a trusted value; the existing dictionary/fallback path remains available.
 - Dictionary-based calorie estimates should feel realistic, not perfectly precise.
 - If only part of a meal is detected, unknown items should not silently become 0 kcal.

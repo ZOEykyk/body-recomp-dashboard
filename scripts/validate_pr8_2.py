@@ -130,6 +130,7 @@ def main() -> None:
         "food",
         "nutrition",
         "source",
+        "source_selection",
         "input",
     }
     family_result = lookup_food(sample_item("FamilyMart"))
@@ -210,7 +211,7 @@ def main() -> None:
     negative_nutrition["nutrition"]["protein_g"] = -1
     assert_equal(validate_catalog([negative_nutrition])["valid_items"], [], "negative nutrition excluded")
     missing_verified_date = deepcopy(FOOD_LOOKUP_CATALOG[0])
-    missing_verified_date["source"].pop("verified_on")
+    missing_verified_date["source"].pop("verified_at")
     assert_equal(validate_catalog([missing_verified_date])["valid_items"], [], "missing verified date excluded")
     invalid_window = deepcopy(FOOD_LOOKUP_CATALOG[0])
     invalid_window["valid_from"] = "2026-12-31"

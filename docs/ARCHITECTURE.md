@@ -42,6 +42,8 @@ Body Score / Coach feedback
 - `food_aliases.py`: Lightweight alias normalization for parser output. It does not store calorie or macro values.
 - `food_lookup.py`: Pure local Food Lookup Engine that resolves parsed foods against the reviewed seed catalog and returns nutrition, source, and match metadata.
 - `food_lookup_catalog.json`: Small reviewed catalog of official product/menu nutrition facts. It is local data, not a runtime web fetch or a broad Food Master database.
+- `food_source_models.py`: One shared metadata contract for every nutrition source.
+- `food_source_policy.py`: Pure deterministic source-priority, freshness, and conflict-resolution policy.
 - `bodyos_standard.py`: Reusable BodyOS Standard v1.0 rule engine for daily scoring and score component maximum-score metadata.
 - `workout_intelligence.py`: Reusable Workout Intelligence v1 parser and training feedback engine.
 - `README.md`: User-facing setup and feature documentation.
@@ -77,10 +79,12 @@ structured parsed foods / explicit kcal and PFC
 ↓
 food_lookup.py / reviewed seed catalog
 ↓
+food_source_policy.py
+↓
 existing dictionary and fallback calorie estimator
 ```
 
-The parser understands text structure: delimiters, composite meals, brand context, variants, size, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It returns food item contracts designed for lookup (`brand`, `canonical_name`, `variant`, `size`, `quantity`, `unit`, `original_fragment`, `resolution`, `confidence`, `needs_review`, and `explicit_nutrition`). `food_lookup.py` is a separate pure layer: it uses the reviewed local catalog, returns `status`, `match_type`, `confidence`, `needs_review`, `candidates`, original parsed identity, `nutrition`, and `source` metadata. It requires brand agreement whenever the parser supplies a brand, declines ambiguous matches, and exposes `calculate_lookup_total()` for basis-aware totals. Explicit values from the user remain highest priority. Broad Food Master ingestion and runtime public-data fetching remain future work.
+The parser understands text structure: delimiters, composite meals, brand context, variants, size, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It returns food item contracts designed for lookup (`brand`, `canonical_name`, `variant`, `size`, `quantity`, `unit`, `original_fragment`, `resolution`, `confidence`, `needs_review`, and `explicit_nutrition`). `food_lookup.py` is a separate pure layer: it uses the reviewed local catalog, returns `status`, `match_type`, `confidence`, `needs_review`, `candidates`, original parsed identity, `nutrition`, and source-selection metadata. `food_source_policy.py` ranks explicit labels first, then current official sources, reviewed data, references, legacy dictionaries, and fallback estimates. It excludes rejected, superseded, expired, or out-of-validity sources and leaves equal-priority conflicts unresolved for review. Explicit values from the user remain highest priority. Broad Food Master ingestion and runtime public-data fetching remain future work.
 
 ## Dashboard Layer
 

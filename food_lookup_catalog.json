@@ -24,10 +24,19 @@
         "salt_g": 1.3
       },
       "source": {
+        "source_id": "familymart-famichiki-boneless-official-2026-07-13",
         "source_type": "official_product_page",
         "publisher": "FamilyMart",
-        "url": "https://www.family.co.jp/goods/friedfoods/0253116.html",
-        "verified_on": "2026-07-13"
+        "source_ref": "https://www.family.co.jp/goods/friedfoods/0253116.html",
+        "captured_at": "2026-07-13",
+        "verified_at": "2026-07-13",
+        "valid_from": "2026-07-13",
+        "valid_to": null,
+        "product_version": null,
+        "reviewer": "BodyOS",
+        "verification_status": "verified",
+        "confidence": "high",
+        "notes": "Official FamilyMart product page."
       }
     },
     {
@@ -53,10 +62,19 @@
         "salt_g": null
       },
       "source": {
+        "source_id": "mcdonalds-sausage-egg-mcmuffin-official-2026-07-13",
         "source_type": "official_nutrition_table",
         "publisher": "McDonald's Japan",
-        "url": "https://www.mcdonalds.co.jp/quality/allergy_Nutrition/nutrient/",
-        "verified_on": "2026-07-13"
+        "source_ref": "https://www.mcdonalds.co.jp/quality/allergy_Nutrition/nutrient/",
+        "captured_at": "2026-07-13",
+        "verified_at": "2026-07-13",
+        "valid_from": "2026-07-13",
+        "valid_to": null,
+        "product_version": null,
+        "reviewer": "BodyOS",
+        "verification_status": "verified",
+        "confidence": "high",
+        "notes": "Official McDonald's Japan nutrition table."
       }
     },
     {
@@ -82,10 +100,19 @@
         "salt_g": 1.5
       },
       "source": {
+        "source_id": "mcdonalds-egg-mcmuffin-official-2026-07-13",
         "source_type": "official_product_page",
         "publisher": "McDonald's Japan",
-        "url": "https://www.mcdonalds.co.jp/products/1410/",
-        "verified_on": "2026-07-13"
+        "source_ref": "https://www.mcdonalds.co.jp/products/1410/",
+        "captured_at": "2026-07-13",
+        "verified_at": "2026-07-13",
+        "valid_from": "2026-07-13",
+        "valid_to": null,
+        "product_version": null,
+        "reviewer": "BodyOS",
+        "verification_status": "verified",
+        "confidence": "high",
+        "notes": "Official McDonald's Japan product page."
       }
     },
     {
@@ -111,10 +138,19 @@
         "salt_g": 0.8
       },
       "source": {
+        "source_id": "mcdonalds-hash-potato-official-2026-07-13",
         "source_type": "official_product_page",
         "publisher": "McDonald's Japan",
-        "url": "https://www.mcdonalds.co.jp/products/5010/",
-        "verified_on": "2026-07-13"
+        "source_ref": "https://www.mcdonalds.co.jp/products/5010/",
+        "captured_at": "2026-07-13",
+        "verified_at": "2026-07-13",
+        "valid_from": "2026-07-13",
+        "valid_to": null,
+        "product_version": null,
+        "reviewer": "BodyOS",
+        "verification_status": "verified",
+        "confidence": "high",
+        "notes": "Official McDonald's Japan product page."
       }
     }
   ]
