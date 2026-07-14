@@ -411,6 +411,42 @@ def score_component_styles() -> str:
     ).strip()
 
 
+def body_score_card_styles() -> str:
+    return textwrap.dedent(
+        """
+    <style>
+      .bodyos-body-score-summary .bodyos-body-score-card,
+      .bodyos-body-score-summary .bodyos-body-score-title,
+      .bodyos-body-score-summary .bodyos-body-score-value,
+      .bodyos-body-score-summary .bodyos-body-score-subtitle {
+        opacity: 1 !important;
+        filter: none !important;
+        mix-blend-mode: normal !important;
+        background-image: none !important;
+        background-clip: border-box !important;
+        -webkit-background-clip: border-box !important;
+      }
+      .bodyos-body-score-summary .bodyos-body-score-card,
+      .bodyos-body-score-summary .bodyos-body-score-title,
+      .bodyos-body-score-summary .bodyos-body-score-value {
+        color: #31313f !important;
+        -webkit-text-fill-color: #31313f !important;
+      }
+      .bodyos-body-score-summary .bodyos-body-score-subtitle {
+        color: rgba(49, 51, 63, 0.68) !important;
+        -webkit-text-fill-color: rgba(49, 51, 63, 0.68) !important;
+        opacity: 1 !important;
+        filter: none !important;
+        mix-blend-mode: normal !important;
+        background-image: none !important;
+        background-clip: border-box !important;
+        -webkit-background-clip: border-box !important;
+      }
+    </style>
+    """
+    ).strip()
+
+
 def render_improvement_priorities(rows: list[dict[str, Any]]) -> str:
     priorities = sorted(
         [row for row in rows if row["seven_day_average"] is not None],
@@ -616,6 +652,29 @@ def dashboard_metric_cards(cards: list[dict[str, str]]) -> str:
     return f'<div class="bodyos-component-grid bodyos-card-grid">{"".join(card_markup)}</div>'
 
 
+def body_score_metric_cards(cards: list[dict[str, str]]) -> str:
+    card_markup: list[str] = []
+    for card in cards:
+        caption = card.get("caption", "")
+        caption_markup = (
+            f'<div class="bodyos-component-meta bodyos-body-score-subtitle">{html.escape(caption)}</div>'
+            if caption
+            else ""
+        )
+        card_markup.append(
+            textwrap.dedent(
+                f"""
+            <div class="bodyos-component-card bodyos-body-score-card">
+              <div class="bodyos-component-label bodyos-body-score-title">{html.escape(card["label"])}</div>
+              <div class="bodyos-component-rate bodyos-body-score-value">{html.escape(card["value"])}</div>
+              {caption_markup}
+            </div>
+            """
+            ).strip()
+        )
+    return f'<div class="bodyos-component-grid bodyos-card-grid">{"".join(card_markup)}</div>'
+
+
 def render_html_section(markup: str, fallback_height: int = 700) -> None:
     if hasattr(st, "html"):
         st.html(markup)
@@ -648,8 +707,9 @@ def render_body_score_summary(latest: pd.Series, chart_df: pd.DataFrame) -> None
     markup = textwrap.dedent(
         f"""
         {score_component_styles()}
-        <div class="bodyos-component-section">
-          {dashboard_metric_cards([
+        {body_score_card_styles()}
+        <div class="bodyos-component-section bodyos-body-score-summary">
+          {body_score_metric_cards([
               {"label": "最新Body Score", "value": f"{int(latest['Body Score'])}点", "caption": score_label(latest["Body Score"])},
               {"label": "7日平均Body Score", "value": f"{chart_df['7日平均Body Score'].iloc[-1]:.1f}点"},
               {"label": "最新モード", "value": str(latest["モード"])},
