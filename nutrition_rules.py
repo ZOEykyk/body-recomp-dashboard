@@ -32,6 +32,7 @@ def action_for_priority(priority: dict[str, Any], status: str) -> dict[str, str]
         "fiber_low": (f"{future}食物繊維源を足す", "野菜、海藻、きのこ、豆類を一品追加してください。"),
         "salt_high": (f"{future}汁物を一回までにする", "汁を残すか、加工食品と濃い味の組み合わせを避けてください。"),
         "snack_high": ("間食を一回分減らす", "甘い間食は一品までにし、必要なら高タンパクな選択へ置き換えてください。"),
+        "alcohol_recorded": (f"{future}飲酒カロリーを別途確認する", "飲酒量や割り材が曖昧なため、総カロリーは参考値として扱ってください。"),
     }
     title, detail = templates.get(code, (priority["title"], priority["detail"]))
     return {"title": title, "detail": detail}

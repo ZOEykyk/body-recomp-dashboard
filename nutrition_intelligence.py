@@ -171,6 +171,7 @@ def _aggregate_from_meals(record: dict[str, Any]) -> dict[str, Any]:
         "vegetables": vegetables,
         "snacks": snacks,
         "has_meal_text": any(bool(text) for text in meals.values()),
+        "alcohol": _alcohol_context(record),
     }
 
 
@@ -199,6 +200,13 @@ def _snack_analysis(text: str, snack_calories: float | None, total_calories: flo
         "supportive": supportive,
         "discretionary": discretionary,
     }
+
+
+def _alcohol_context(record: dict[str, Any]) -> dict[str, Any]:
+    status = str(record_value(record, "飲酒", "alcohol") or "").strip().lower()
+    detail = str(record_value(record, "飲酒内容", "alcohol_detail") or "").strip()
+    recorded = status in {"あり", "true", "yes", "1"}
+    return {"recorded": recorded, "detail_present": bool(detail), "ambiguous": bool(detail) and not recorded}
 
 
 def _component(name: str, actual: float | None, target: Any, points: int, status: str, explanation: str, available: bool, trace: list[dict[str, Any]]) -> dict[str, Any]:
@@ -268,6 +276,7 @@ def _confidence(aggregation: dict[str, Any], components: dict[str, Any], status:
     if unresolved: reasons.append(f"未確認食品 {unresolved}件")
     if macro_coverage < .6: reasons.append("PFC等の栄養成分が一部不足")
     if fallback_ratio >= .3: reasons.append("推定値の割合が高い")
+    if aggregation["alcohol"]["ambiguous"]: reasons.append("飲酒カロリーの内訳が曖昧")
     if status in {"morning_only", "unknown_completion"}: reasons.append("一日の記録が未完了")
     return {"score": round(score, 2), "level": level, "known_calorie_ratio": round(known_ratio, 2), "macro_coverage": round(macro_coverage, 2), "fallback_ratio": round(fallback_ratio, 2), "unresolved_count": unresolved, "reasons": reasons}
 
@@ -305,6 +314,8 @@ def _insights(components: dict[str, Any], aggregation: dict[str, Any], status: s
         priorities.append(priority_item("snack_high", "medium", "間食カロリーが多め", "間食が総カロリーに占める割合が高めです。", actual=snack["calories_kcal"], target=None))
     if confidence["level"] == "low":
         priorities.append(priority_item("data_quality_low", "low", "栄養データの確度が低め", "未確認食品やPFC不足があるため、評価は参考値です。"))
+    if aggregation["alcohol"]["recorded"]:
+        priorities.append(priority_item("alcohol_recorded", "low", "飲酒を記録", "飲酒カロリーの内訳は現在の入力では正確に分けられないため、総量は参考値です。"))
     priorities.sort(key=lambda item: (severity_rank(item["severity"]), item["code"]))
     actions: list[dict[str, Any]] = []
     for priority in priorities:
@@ -383,6 +394,7 @@ def analyze_nutrition(record: dict[str, Any], *, history: list[dict[str, Any]] |
         "data_quality": {"known_item_count": aggregation["known_item_count"], "estimated_item_count": aggregation["estimated_item_count"], "unresolved_item_count": aggregation["unresolved_item_count"], "source_type_distribution": aggregation["source_type_distribution"], "macro_coverage": confidence["macro_coverage"]},
         "vegetables": aggregation["vegetables"],
         "snacks": aggregation["snacks"],
+        "alcohol": aggregation["alcohol"],
         "rule_trace": rule_trace,
     }
     if _with_comparisons:
