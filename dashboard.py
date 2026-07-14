@@ -13,6 +13,7 @@ import streamlit.components.v1 as components
 
 from bodyos_standard import SCORE_COMPONENTS, SCORE_COMPONENT_MAXIMA
 from data_integrity import format_optional_number, format_weight_kg, valid_weight_series
+from nutrition_intelligence import analyze_nutrition
 from workout_intelligence import analyze_workout
 
 X_AXIS_LABEL_ANGLE = -40
@@ -680,6 +681,56 @@ def render_todays_metrics(latest: pd.Series, chart_df: pd.DataFrame, this_week: 
     render_html_section(markup, fallback_height=700)
 
 
+def render_nutrition_intelligence(latest: pd.Series, data: pd.DataFrame) -> None:
+    """Render a compact, mobile-safe projection of the pure nutrition result."""
+    st.subheader("Nutrition Intelligence")
+    history = data.iloc[:-1].to_dict("records") if len(data) > 1 else []
+    profile = {"body_weight": latest.get("体重")}
+    insight = analyze_nutrition(latest.to_dict(), history=history, profile=profile)
+    markup = textwrap.dedent(
+        f"""
+        {score_component_styles()}
+        <div class="bodyos-component-section">
+          {dashboard_metric_cards([
+              {"label": "Nutrition Score", "value": f"{insight['score']}点", "caption": f"利用可能 {insight['available_points']}点分で正規化"},
+              {"label": "信頼度", "value": insight['confidence']['level'], "caption": f"{insight['confidence']['score']:.0%}"},
+              {"label": "記録状況", "value": insight['status'], "caption": f"目標進捗 {insight['expected_progress_ratio']:.0%}"},
+          ])}
+        </div>
+        """
+    ).strip()
+    render_html_section(markup, fallback_height=420)
+    st.write(insight["summary"])
+    if insight["strengths"]:
+        st.markdown("**良い点**")
+        for strength in insight["strengths"][:2]:
+            st.write(f"- {strength['title']}: {strength['detail']}")
+    if insight["priorities"]:
+        st.markdown("**改善優先項目**")
+        for priority in insight["priorities"][:3]:
+            st.write(f"- [{priority['severity']}] {priority['title']}: {priority['detail']}")
+    if insight["actions"]:
+        st.markdown("**次のアクション**")
+        for action in insight["actions"]:
+            st.write(f"{action['priority']}. {action['title']} - {action['detail']}")
+    with st.expander("栄養評価の詳細"):
+        breakdown = pd.DataFrame(
+            [
+                {
+                    "項目": name,
+                    "状態": item["status"],
+                    "実績": item["actual"] if item["actual"] is not None else "—",
+                    "目標": str(item["target"]),
+                    "点": f"{item['points']} / {item['max_points']}" if item["available"] else "—",
+                }
+                for name, item in insight["score_breakdown"].items()
+            ]
+        )
+        st.dataframe(breakdown, use_container_width=True, hide_index=True)
+        st.caption("データ品質: " + (" / ".join(insight["confidence"]["reasons"]) or "十分な記録範囲"))
+        st.json(insight["comparisons"])
+
+
 def render_core_trend_charts(chart_df: pd.DataFrame) -> None:
     st.subheader("コア推移")
 
@@ -768,6 +819,7 @@ def render_dashboard(
     st.header("ダッシュボード")
     render_body_score_summary(latest, chart_df)
     render_todays_metrics(latest, chart_df, this_week)
+    render_nutrition_intelligence(latest, data)
     render_workout_intelligence(latest, data)
     render_core_trend_charts(chart_df)
     render_history_table(chart_df)

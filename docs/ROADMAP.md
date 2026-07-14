@@ -20,9 +20,10 @@
 - PR8.2 Food Lookup Engine
 - PR8.3 Food Source Strategy & Trust Policy
 - PR9 Personal Food Master v1
+- PR10 Nutrition Intelligence Engine v1
 - PR8 Body Score AI
 - PR9 Coach AI
-- PR10 Lifestyle Intelligence
+- Future Lifestyle Intelligence
 
 ## Milestone M3 Platform
 
