@@ -355,16 +355,16 @@ def score_component_styles() -> str:
         line-height: 1.35;
         overflow-wrap: anywhere;
       }
-      .trend-up {
+      .bodyos-component-section .trend-up {
         background: rgba(38, 166, 91, 0.12);
         color: #137333;
       }
-      .trend-down {
+      .bodyos-component-section .trend-down {
         background: rgba(214, 39, 40, 0.11);
         color: #9f1d1d;
       }
-      .trend-stable,
-      .trend-insufficient {
+      .bodyos-component-section .trend-stable,
+      .bodyos-component-section .trend-insufficient {
         background: rgba(49, 51, 63, 0.08);
         color: rgba(49, 51, 63, 0.78);
       }
@@ -687,16 +687,40 @@ def render_nutrition_intelligence(latest: pd.Series, data: pd.DataFrame) -> None
     history = data.iloc[:-1].to_dict("records") if len(data) > 1 else []
     profile = {"body_weight": latest.get("体重")}
     insight = analyze_nutrition(latest.to_dict(), history=history, profile=profile)
+    cards = [
+        ("Nutrition Score", f"{insight['score']}点", f"利用可能 {insight['available_points']}点分で正規化"),
+        ("信頼度", insight["confidence"]["level"], f"{insight['confidence']['score']:.0%}"),
+        ("記録状況", insight["status"], f"目標進捗 {insight['expected_progress_ratio']:.0%}"),
+    ]
+    card_markup = "".join(
+        f'<div class="bodyos-ni-card"><div class="bodyos-ni-label">{html.escape(label)}</div>'
+        f'<div class="bodyos-ni-value">{html.escape(value)}</div>'
+        f'<div class="bodyos-ni-meta">{html.escape(caption)}</div></div>'
+        for label, value, caption in cards
+    )
     markup = textwrap.dedent(
         f"""
-        {score_component_styles()}
-        <div class="bodyos-component-section">
-          {dashboard_metric_cards([
-              {"label": "Nutrition Score", "value": f"{insight['score']}点", "caption": f"利用可能 {insight['available_points']}点分で正規化"},
-              {"label": "信頼度", "value": insight['confidence']['level'], "caption": f"{insight['confidence']['score']:.0%}"},
-              {"label": "記録状況", "value": insight['status'], "caption": f"目標進捗 {insight['expected_progress_ratio']:.0%}"},
-          ])}
-        </div>
+        <style>
+          .bodyos-nutrition-intelligence,
+          .bodyos-nutrition-intelligence * {{ box-sizing: border-box; min-width: 0; }}
+          .bodyos-nutrition-intelligence .bodyos-ni-grid {{
+            display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.9rem; width: 100%;
+          }}
+          .bodyos-nutrition-intelligence .bodyos-ni-card {{
+            border: 1px solid rgba(49, 51, 63, 0.18); border-radius: 8px; padding: 0.85rem 0.95rem;
+            background: #fff; overflow-wrap: anywhere;
+          }}
+          .bodyos-nutrition-intelligence .bodyos-ni-label {{ font-weight: 700; line-height: 1.35; margin-bottom: 0.55rem; }}
+          .bodyos-nutrition-intelligence .bodyos-ni-value {{ font-size: 2rem; font-weight: 750; line-height: 1.05; margin-bottom: 0.35rem; }}
+          .bodyos-nutrition-intelligence .bodyos-ni-meta {{ color: rgba(49, 51, 63, 0.68); font-size: 0.9rem; line-height: 1.45; }}
+          @media (max-width: 900px) {{ .bodyos-nutrition-intelligence .bodyos-ni-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
+          @media (max-width: 520px) {{
+            .bodyos-nutrition-intelligence .bodyos-ni-grid {{ grid-template-columns: minmax(0, 1fr); }}
+            .bodyos-nutrition-intelligence .bodyos-ni-card {{ padding: 0.8rem 0.85rem; }}
+            .bodyos-nutrition-intelligence .bodyos-ni-value {{ font-size: 1.85rem; }}
+          }}
+        </style>
+        <div class="bodyos-nutrition-intelligence"><div class="bodyos-ni-grid">{card_markup}</div></div>
         """
     ).strip()
     render_html_section(markup, fallback_height=420)
