@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 from typing import Any
 
 
@@ -32,12 +33,16 @@ def as_positive_number(value: Any) -> float | None:
         parsed = float(value)
     except (TypeError, ValueError):
         return None
-    return parsed if parsed > 0 else None
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
+
+
+def is_missing(value: Any) -> bool:
+    return value is None or (isinstance(value, float) and math.isnan(value))
 
 
 def record_value(record: dict[str, Any], *keys: str) -> Any:
     for key in keys:
-        if key in record and record[key] is not None:
+        if key in record and not is_missing(record[key]):
             return record[key]
     return None
 
@@ -50,7 +55,7 @@ def meal_texts(record: dict[str, Any]) -> dict[str, str]:
         value = record_value(copy, *keys)
         if value is None and isinstance(meals, dict):
             value = record_value(meals, *keys)
-        values[meal_type] = str(value or "").strip()
+        values[meal_type] = "" if is_missing(value) else str(value or "").strip()
     return values
 
 
