@@ -300,52 +300,59 @@ def score_component_styles() -> str:
         box-sizing: border-box;
         min-width: 0;
       }
-      .bodyos-component-grid {
+      .bodyos-component-section .bodyos-component-grid {
         display: grid;
         gap: 0.9rem;
         width: 100%;
         max-width: 100%;
         overflow-x: hidden;
       }
-      .bodyos-priority-grid {
+      .bodyos-component-section .bodyos-priority-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         margin: 0.25rem 0 1.25rem;
       }
-      .bodyos-card-grid {
+      .bodyos-component-section .bodyos-card-grid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
         margin-top: 0.5rem;
       }
-      .bodyos-component-card {
+      .bodyos-component-section .bodyos-component-card {
         border: 1px solid rgba(49, 51, 63, 0.18);
         border-radius: 8px;
         padding: 0.85rem 0.95rem;
         background: #fff;
+        color: #31313f;
+        opacity: 1;
+        filter: none;
+        backdrop-filter: none;
+        mix-blend-mode: normal;
         overflow-wrap: anywhere;
         word-break: normal;
       }
-      .bodyos-component-label {
+      .bodyos-component-section .bodyos-component-label {
+        color: #31313f;
         font-weight: 700;
         line-height: 1.35;
         margin-bottom: 0.55rem;
       }
-      .bodyos-component-score {
+      .bodyos-component-section .bodyos-component-score {
         color: rgba(49, 51, 63, 0.82);
         font-size: 0.98rem;
         line-height: 1.3;
         margin-bottom: 0.45rem;
       }
-      .bodyos-component-rate {
+      .bodyos-component-section .bodyos-component-rate {
+        color: #31313f;
         font-size: 2rem;
         font-weight: 750;
         line-height: 1.05;
         margin-bottom: 0.35rem;
       }
-      .bodyos-component-meta {
+      .bodyos-component-section .bodyos-component-meta {
         color: rgba(49, 51, 63, 0.68);
         font-size: 0.9rem;
         line-height: 1.45;
       }
-      .bodyos-component-trend {
+      .bodyos-component-section .bodyos-component-trend {
         display: inline-block;
         max-width: 100%;
         border-radius: 999px;
@@ -368,7 +375,7 @@ def score_component_styles() -> str:
         background: rgba(49, 51, 63, 0.08);
         color: rgba(49, 51, 63, 0.78);
       }
-      .bodyos-progress-track {
+      .bodyos-component-section .bodyos-progress-track {
         height: 0.48rem;
         width: 100%;
         border-radius: 999px;
@@ -376,26 +383,26 @@ def score_component_styles() -> str:
         overflow: hidden;
         margin-top: 0.75rem;
       }
-      .bodyos-progress-fill {
+      .bodyos-component-section .bodyos-progress-fill {
         height: 100%;
         border-radius: inherit;
         background: #1f77b4;
       }
       @media (max-width: 900px) {
-        .bodyos-priority-grid,
-        .bodyos-card-grid {
+        .bodyos-component-section .bodyos-priority-grid,
+        .bodyos-component-section .bodyos-card-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
       @media (max-width: 520px) {
-        .bodyos-priority-grid,
-        .bodyos-card-grid {
+        .bodyos-component-section .bodyos-priority-grid,
+        .bodyos-component-section .bodyos-card-grid {
           grid-template-columns: minmax(0, 1fr);
         }
-        .bodyos-component-card {
+        .bodyos-component-section .bodyos-component-card {
           padding: 0.8rem 0.85rem;
         }
-        .bodyos-component-rate {
+        .bodyos-component-section .bodyos-component-rate {
           font-size: 1.85rem;
         }
       }
@@ -708,10 +715,11 @@ def render_nutrition_intelligence(latest: pd.Series, data: pd.DataFrame) -> None
           }}
           .bodyos-nutrition-intelligence .bodyos-ni-card {{
             border: 1px solid rgba(49, 51, 63, 0.18); border-radius: 8px; padding: 0.85rem 0.95rem;
-            background: #fff; overflow-wrap: anywhere;
+            background: #fff; color: #31313f; opacity: 1; filter: none; backdrop-filter: none;
+            mix-blend-mode: normal; overflow-wrap: anywhere;
           }}
-          .bodyos-nutrition-intelligence .bodyos-ni-label {{ font-weight: 700; line-height: 1.35; margin-bottom: 0.55rem; }}
-          .bodyos-nutrition-intelligence .bodyos-ni-value {{ font-size: 2rem; font-weight: 750; line-height: 1.05; margin-bottom: 0.35rem; }}
+          .bodyos-nutrition-intelligence .bodyos-ni-label {{ color: #31313f; font-weight: 700; line-height: 1.35; margin-bottom: 0.55rem; }}
+          .bodyos-nutrition-intelligence .bodyos-ni-value {{ color: #31313f; font-size: 2rem; font-weight: 750; line-height: 1.05; margin-bottom: 0.35rem; }}
           .bodyos-nutrition-intelligence .bodyos-ni-meta {{ color: rgba(49, 51, 63, 0.68); font-size: 0.9rem; line-height: 1.45; }}
           @media (max-width: 900px) {{ .bodyos-nutrition-intelligence .bodyos-ni-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
           @media (max-width: 520px) {{

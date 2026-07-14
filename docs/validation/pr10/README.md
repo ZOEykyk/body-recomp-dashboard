@@ -20,3 +20,18 @@ modified.
 
 No Streamlit exceptions occurred in these checks. The Nutrition Intelligence
 cards, strengths, priorities, and actions remain readable in the narrow views.
+
+## macOS Desktop CSS Regression
+
+- [Chrome desktop after fix](macos_chrome_desktop_fixed.png): Body Score and
+  Today's Metrics cards retain dark foreground text on their white card
+  backgrounds.
+- [Safari desktop after fix](macos_safari_desktop_fixed.png): the same card
+  contrast is rendered correctly in Safari.
+- Chrome was checked with DevTools cache disabled. Card computed styles were
+  `color: rgb(49, 49, 63)`, `opacity: 1`, `filter: none`,
+  `backdrop-filter: none`, and `mix-blend-mode: normal`.
+- The Nutrition Intelligence and shared component-card selectors are scoped to
+  their dedicated wrapper classes. No PR10 selectors target generic elements or
+  Streamlit selectors such as `div`, `p`, `span`, `.stMarkdown`, `.stMetric`,
+  or `.stContainer`.
