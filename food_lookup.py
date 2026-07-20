@@ -320,11 +320,11 @@ def calculate_lookup_total(lookup_result: dict[str, Any], quantity: Any, unit: A
     normalized_unit = str(unit or "").lower()
     factor: float | None = None
     if basis == "per_item":
-        factor = 1.0 if amount is None and not normalized_unit else amount if normalized_unit in ITEM_UNITS else None
+        factor = 1.0 if amount in {None, 1.0} and not normalized_unit else amount if normalized_unit in ITEM_UNITS else None
     elif basis == "per_package":
-        factor = 1.0 if amount is None and not normalized_unit else amount if normalized_unit in PACKAGE_UNITS else None
+        factor = 1.0 if amount in {None, 1.0} and not normalized_unit else amount if normalized_unit in PACKAGE_UNITS else None
     elif basis == "per_serving":
-        factor = 1.0 if amount is None and not normalized_unit else amount if normalized_unit in SERVING_UNITS else None
+        factor = 1.0 if amount in {None, 1.0} and not normalized_unit else amount if normalized_unit in SERVING_UNITS else None
     elif basis == "per_100g":
         factor = amount / 100 if amount is not None and normalized_unit == "g" else None
     elif basis == "per_100ml":

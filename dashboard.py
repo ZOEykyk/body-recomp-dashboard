@@ -748,12 +748,21 @@ def render_todays_metrics(latest: pd.Series, chart_df: pd.DataFrame, this_week: 
     render_html_section(markup, fallback_height=700)
 
 
-def render_nutrition_intelligence(latest: pd.Series, data: pd.DataFrame) -> None:
+def render_nutrition_intelligence(
+    latest: pd.Series,
+    data: pd.DataFrame,
+    food_knowledge: dict[str, Any] | None = None,
+) -> None:
     """Render a compact, mobile-safe projection of the pure nutrition result."""
     st.subheader("Nutrition Intelligence")
     history = data.iloc[:-1].to_dict("records") if len(data) > 1 else []
     profile = {"body_weight": latest.get("体重")}
-    insight = analyze_nutrition(latest.to_dict(), history=history, profile=profile)
+    insight = analyze_nutrition(
+        latest.to_dict(),
+        history=history,
+        profile=profile,
+        food_knowledge=food_knowledge,
+    )
     cards = [
         ("Nutrition Score", f"{insight['score']}点", f"利用可能 {insight['available_points']}点分で正規化"),
         ("信頼度", insight["confidence"]["level"], f"{insight['confidence']['score']:.0%}"),
@@ -896,6 +905,8 @@ def render_dashboard(
     target_weight: float,
     predict_target_date: Callable[[pd.DataFrame, float], str],
     training_counted: Callable[[dict[str, Any] | pd.Series], bool],
+    *,
+    food_knowledge: dict[str, Any] | None = None,
 ) -> None:
     data = data.sort_values("日付")
     latest = data.iloc[-1]
@@ -911,7 +922,7 @@ def render_dashboard(
     st.header("ダッシュボード")
     render_body_score_summary(latest, chart_df)
     render_todays_metrics(latest, chart_df, this_week)
-    render_nutrition_intelligence(latest, data)
+    render_nutrition_intelligence(latest, data, food_knowledge)
     render_workout_intelligence(latest, data)
     render_core_trend_charts(chart_df)
     render_history_table(chart_df)

@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from food_aliases import normalize_food_name
-from food_lookup import lookup_food
+from food_lookup import FOOD_LOOKUP_VERSION
 from food_master_models import (
     FOOD_ENCOUNTER_SCHEMA_VERSION,
     encounter_idempotency_key,
@@ -16,8 +16,7 @@ from food_master_models import (
     utc_now,
 )
 from food_master_repository import FoodMasterRepository
-from food_source_models import explicit_user_label_source
-from food_source_policy import select_nutrition_source
+from food_source_policy import FOOD_SOURCE_POLICY_VERSION, select_nutrition_source
 
 
 AUTHORITATIVE_TYPES = {"official_product_page", "official_nutrition_table", "official_api_or_catalog", "bodyos_verified"}
@@ -137,12 +136,28 @@ def remember_food_encounters(
     record_date: str,
     operation_id: str,
     used_at: str | None = None,
+    resolution: dict[str, Any] | None = None,
+    knowledge: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Append encounters and create reviewable knowledge only for a newly saved record."""
     if not isinstance(parsed_foods, dict) or parsed_foods.get("is_zero_meal"):
         return []
     timestamp = used_at or utc_now()
     foods = repository.list_foods(user_id)
+    if not isinstance(resolution, dict):
+        from food_resolver import build_food_knowledge_snapshot, resolve_food_text
+
+        resolver_knowledge = knowledge or build_food_knowledge_snapshot(foods)
+        resolution = resolve_food_text(
+            str(parsed_foods.get("raw_text") or ""),
+            meal_type,
+            knowledge=resolver_knowledge,
+        )
+    resolved_items = {
+        int(result.get("item", {}).get("index", -1)): result
+        for result in resolution.get("items") or []
+        if isinstance(result, dict)
+    }
     encounters: list[dict[str, Any]] = []
     for item in parsed_foods.get("items") or []:
         if not isinstance(item, dict) or not item.get("original_fragment"):
@@ -156,19 +171,16 @@ def remember_food_encounters(
         )
         if repository.get_encounter_by_idempotency(user_id, idempotency_key) is not None:
             continue
-        personal_resolution = resolve_personal_food(item, foods)
-        master_food = personal_resolution.get("food")
-        seed_lookup = lookup_food(item)
-        if master_food is not None:
-            source_selection = personal_food_source_selection(master_food)
-        elif seed_lookup.get("status") == "matched":
-            source_selection = seed_lookup["source_selection"]
-        elif item.get("explicit_nutrition", {}).get("calories_kcal") is not None:
-            source_selection = select_nutrition_source(
-                [{"source": explicit_user_label_source(notes="Explicit nutrition extracted from meal text."), "nutrition": item["explicit_nutrition"]}]
-            )
-        else:
-            source_selection = select_nutrition_source([])
+        item_resolution = resolved_items.get(int(item.get("index", -1)), {})
+        selected = item_resolution.get("selected") or {}
+        source_selection = item_resolution.get("source_selection") or select_nutrition_source([])
+        selected_origin = str(item_resolution.get("selected_origin") or "fallback")
+        selected_food = selected.get("food") if isinstance(selected.get("food"), dict) else None
+        master_food = deepcopy(selected_food) if selected_origin == "personal" and selected_food else None
+        personal_resolution = {
+            "status": "matched" if master_food is not None else str(item_resolution.get("status") or "not_found"),
+            "food": master_food,
+        }
 
         candidate_reason: str | None = None
         if master_food is None:
@@ -177,7 +189,12 @@ def remember_food_encounters(
                 candidate_reason = "existing_candidate"
                 personal_resolution = {"status": "candidate_reused", "food": master_food}
         if master_food is None:
-            master_food = create_food_from_encounter(user_id, item, source_selection, now=timestamp)
+            knowledge_selection = (
+                source_selection
+                if selected_origin in {"explicit", "official"}
+                else select_nutrition_source([])
+            )
+            master_food = create_food_from_encounter(user_id, item, knowledge_selection, now=timestamp)
             candidate_reason = "new_candidate" if master_food["status"] == "candidate" else "authoritative_source"
         aliases = set(master_food.get("aliases") or [])
         aliases.add(str(item["original_fragment"]))
@@ -200,12 +217,15 @@ def remember_food_encounters(
             "resolution_status": personal_resolution["status"],
             "selected_source_type": (source_selection.get("selected") or {}).get("source", {}).get("source_type"),
             "selected_source_id": (source_selection.get("selected") or {}).get("source", {}).get("source_id"),
-            "selected_nutrition": (source_selection.get("selected") or {}).get("nutrition"),
+            "selected_nutrition": item_resolution.get("total_nutrition") or (source_selection.get("selected") or {}).get("nutrition"),
+            "resolution_origin": selected_origin,
+            "resolution_confidence": item_resolution.get("confidence") or "low",
             "quantity": item.get("quantity"),
             "unit": item.get("unit"),
             "parser_version": parsed_foods.get("metadata", {}).get("food_parser_version"),
-            "lookup_version": seed_lookup.get("metadata", {}).get("food_lookup_version"),
-            "source_policy_version": "1.0",
+            "lookup_version": FOOD_LOOKUP_VERSION,
+            "source_policy_version": FOOD_SOURCE_POLICY_VERSION,
+            "resolver_version": resolution.get("metadata", {}).get("food_resolver_version"),
             "needs_review": bool(source_selection.get("needs_review") or master_food.get("status") == "candidate"),
             "candidate_reason": candidate_reason,
             "created_at": timestamp,

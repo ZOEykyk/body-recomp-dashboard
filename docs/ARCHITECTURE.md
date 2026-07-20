@@ -15,7 +15,9 @@ Streamlit JSON import
 ↓
 Normalizer
 ↓
-Food parser / calorie estimator
+Food Parser
+↓
+Food Resolver / Source Policy
 ↓
 Workout normalizer
 ↓
@@ -42,11 +44,14 @@ Body Score / Coach feedback
 - `food_aliases.py`: Lightweight alias normalization for parser output. It does not store calorie or macro values.
 - `food_lookup.py`: Pure local Food Lookup Engine that resolves parsed foods against the reviewed seed catalog and returns nutrition, source, and match metadata.
 - `food_lookup_catalog.json`: Small reviewed catalog of official product/menu nutrition facts. It is local data, not a runtime web fetch or a broad Food Master database.
+- `food_knowledge_catalog.py`: Adapter that exposes the existing calorie dictionaries through one generic-catalog contract.
+- `food_resolver.py`: Pure application-level Single Source of Truth for candidate collection, source selection, quantity-aware nutrition, fallback, confidence, and resolution counts.
 - `food_source_models.py`: One shared metadata contract for every nutrition source.
-- `food_source_policy.py`: Pure deterministic source-priority, freshness, and conflict-resolution policy.
+- `food_source_policy.py`: Pure deterministic product-tier and source-level priority, freshness, validity, and conflict-resolution policy.
 - `food_master_models.py`: Personal Food Master record and encounter contracts.
 - `food_master_repository.py`: Repository interface plus the local JSON/JSONL adapter for future database migration.
 - `personal_food_master.py`: Personal identity resolution, candidate creation, promotion, usage tracking, and encounter logging.
+- `food_knowledge_dashboard.py`: Read-only Food Knowledge growth metrics and responsive Streamlit projection.
 - `nutrition_targets.py`: Centralized, profile-safe target defaults and formulas.
 - `nutrition_intelligence.py`: Pure deterministic Nutrition Intelligence aggregation, scoring, comparisons, and rule trace.
 - `nutrition_rules.py`: Centralized Japanese coaching templates, heuristics, and recommendation precedence.
@@ -64,13 +69,14 @@ The current storage model is CSV-first. Locally, records are saved to `records.c
 1. User records a day manually or pastes ChatGPT JSON.
 2. Input is normalized into BodyOS columns.
 3. Meals are parsed by `parse_food_text(text, meal_type)` into structured food items and explicit nutrition values.
-4. Calories are estimated from explicit kcal first, then Food Lookup, then dictionary matching, then fallback estimation unless manual calories are provided.
+4. Food Resolver collects Explicit, Personal, Official, Generic, and Fallback candidates before the shared Source Policy selects nutrition.
 5. Workout fields are normalized for consistent training counts.
 6. Workout Intelligence parses workout text for insights without changing the CSV schema.
 7. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
 8. Record is saved to CSV.
 9. `app.py` passes normalized records to `dashboard.py`.
-10. `dashboard.py` renders the dashboard in priority order: Body Score, today's metrics, Workout Intelligence, core trend charts, history, and detailed analysis.
+10. `dashboard.py` renders the dashboard and passes a read-only Food Knowledge snapshot to Nutrition Intelligence.
+11. `food_knowledge_dashboard.py` renders Food Knowledge counts, confidence, usage, and recent activity without changing the CSV.
 
 ## Nutrition Parser Layer
 
@@ -83,22 +89,22 @@ food_parser.py
 ↓
 structured parsed foods / explicit kcal and PFC
 ↓
-food_lookup.py / reviewed seed catalog
+food_resolver.py / all candidates
 ↓
 food_source_policy.py
 ↓
-Personal Food Master candidate / alias resolution
-↓
-existing dictionary and fallback calorie estimator
+nutrition resolution
 ```
 
-The parser understands text structure: delimiters, composite meals, brand context, variants, size, quantities, no-meal text, and explicit nutrition such as `223kcal、P12g、F15g、C14g`. It returns food item contracts designed for lookup (`brand`, `canonical_name`, `variant`, `size`, `quantity`, `unit`, `original_fragment`, `resolution`, `confidence`, `needs_review`, and `explicit_nutrition`). `food_lookup.py` is a separate pure layer: it uses the reviewed local catalog, returns `status`, `match_type`, `confidence`, `needs_review`, `candidates`, original parsed identity, `nutrition`, and source-selection metadata. `food_source_policy.py` ranks explicit labels first, then current official sources, reviewed data, references, legacy dictionaries, and fallback estimates. It excludes rejected, superseded, expired, or out-of-validity sources and leaves equal-priority conflicts unresolved for review. Explicit values from the user remain highest priority. Broad Food Master ingestion and runtime public-data fetching remain future work.
+The parser understands text structure and does not own nutrition. `food_lookup.py` remains the lower-level official-catalog adapter. Application consumers call `food_resolver.py`, which collects every candidate before `food_source_policy.py` applies the fixed order Explicit, Personal, Official, Generic, and Fallback. Source validity, freshness, verification, and same-tier conflicts are evaluated centrally.
 
 PR9 adds a Personal Food Master before seed lookup. It separates append-only food encounters from reusable food records, aliases, source candidates, and usage statistics. Unknown or estimated encounters remain candidates; only reviewed candidates or foods supported by a sufficiently authoritative source become active. The local adapter stores new knowledge independently from `records.csv`, behind a repository interface intended for a future database and multi-user implementation. It is a local MVP: Streamlit Cloud restart or redeploy can discard its JSON/JSONL files, and the existing GitHub persistence currently applies only to `records.csv`.
 
 Personal Food Master encounter writes are idempotent. A stable fingerprint includes owner, date, meal type, normalized fragment, save/import identity, and a normalized meal-content hash. It prevents retries or repeated imports from incrementing usage more than once, while changed content or quantity on the same date becomes a new encounter. The compact Streamlit management section is isolated from the dashboard renderer and works directly through `FoodMasterRepository` for active/candidate review, alias management, linking, and archive actions.
 
-Nutrition Intelligence is a separate read-time layer after nutrition resolution. `dashboard.py` calls the pure `analyze_nutrition(record, history, profile, now)` interface and only renders its result. The engine has no Streamlit, file, network, or LLM dependency; it never alters records, Body Score, Personal Food Master, or source-priority decisions. A future LLM wording layer may consume its structured result and rule trace, but must not replace the deterministic calculation.
+Nutrition Intelligence is a separate read-time layer after nutrition resolution. `dashboard.py` calls the pure `analyze_nutrition(record, history, profile, now, food_knowledge)` interface. The engine passes the copied snapshot to the shared Resolver and has no Streamlit, file, network, repository, or LLM dependency.
+
+See [Food Knowledge Foundation](FOOD_KNOWLEDGE.md) for resolver contracts, repository boundaries, PR12/PR13 handoff, and known technical debt.
 
 ## Dashboard Layer
 

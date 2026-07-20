@@ -5,7 +5,6 @@ import base64
 import json
 import os
 import re
-import unicodedata
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -25,14 +24,13 @@ from data_integrity import (
     valid_weight_series,
 )
 from dashboard import render_dashboard
-from food_lookup import calculate_lookup_total, lookup_food
 from food_master_repository import JsonFoodMasterRepository
 from food_master_models import meal_content_fingerprint
 from food_master_ui import render_food_master_management
+from food_knowledge_dashboard import render_food_knowledge_dashboard
 from food_parser import parse_food_text
-from food_source_models import explicit_user_label_source, internal_nutrition_source
-from food_source_policy import select_nutrition_source
-from personal_food_master import personal_food_source_selection, remember_food_encounters, resolve_personal_food
+from food_resolver import RESOLUTION_ORIGINS, build_food_knowledge_snapshot, resolve_food_text
+from personal_food_master import remember_food_encounters
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
@@ -150,74 +148,6 @@ NUMERIC_COLUMNS = [
 ]
 
 CALORIE_CONFIDENCE_LEVELS = {"low": 0, "medium": 1, "high": 2}
-
-LEGACY_CALORIE_KEYWORDS = {
-    "赤飯おにぎり": 230,
-    "おにぎり": 190,
-    "鮭おにぎり": 190,
-    "ツナマヨ": 230,
-    "ご飯特盛": 500,
-    "ご飯大盛": 380,
-    "ご飯": 260,
-    "白米": 260,
-    "牛丼": 750,
-    "牛丼大盛": 950,
-    "定食": 900,
-    "ハンバーグ定食": 1100,
-    "ウマトマ": 900,
-    "ハンバーグ": 520,
-    "味噌汁": 180,
-    "きつねうどん大": 700,
-    "きつねうどん": 560,
-    "肉ぶっかけうどん": 650,
-    "ぶっかけうどん": 500,
-    "うどん大": 650,
-    "うどん": 450,
-    "とり天": 180,
-    "天ぷら盛り合わせ": 600,
-    "天ぷら": 250,
-    "そば": 420,
-    "とろろそば": 480,
-    "パスタ": 750,
-    "ラーメン": 850,
-    "カレー": 850,
-    "唐揚げ": 350,
-    "チキン": 200,
-    "グリルチキン": 180,
-    "サラダチキン": 120,
-    "ゆでたまご": 80,
-    "卵": 80,
-    "プロテイン": 130,
-    "オイコス": 100,
-    "ヨーグルト": 100,
-    "サラダ": 100,
-    "菓子": 220,
-    "チョコ": 250,
-    "アイス": 260,
-    "ジュース": 130,
-    "トマトジュース": 70,
-    "コーヒー": 20,
-    "カフェラテ": 150,
-    "ビール": 200,
-}
-
-FALLBACK_DICTIONARY_FOODS = [
-    {"name": name, "kcal": kcal, "aliases": [name]} for name, kcal in LEGACY_CALORIE_KEYWORDS.items()
-]
-
-FOOD_DICTIONARY_FILES = [
-    "food_dictionary.json",
-    "brand_dictionary.json",
-    "restaurant_dictionary.json",
-]
-
-MEAL_FALLBACK = {
-    "朝": 300,
-    "昼": 750,
-    "夜": 850,
-    "間食": 200,
-    "仕事中のドリンク": 100,
-}
 
 PERSONAL_FOOD_REPOSITORY = JsonFoodMasterRepository(
     Path(__file__).with_name(PERSONAL_FOOD_MASTER_FILE),
@@ -356,239 +286,32 @@ def write_github_records(csv_text: str) -> None:
     github_request("PUT", github_file_url(), payload)
 
 
-def normalize_food_text(text: Any) -> str:
-    return unicodedata.normalize("NFKC", str(text or "")).lower()
+def current_food_knowledge() -> dict[str, Any]:
+    repository_snapshot = PERSONAL_FOOD_REPOSITORY.get_knowledge_snapshot(PERSONAL_FOOD_USER_ID)
+    return build_food_knowledge_snapshot(repository_snapshot["personal_foods"])
 
 
-def load_food_dictionary() -> list[dict[str, Any]]:
-    foods: list[dict[str, Any]] = []
-    base_dir = Path(__file__).resolve().parent
-    for filename in FOOD_DICTIONARY_FILES:
-        path = base_dir / filename
-        if not path.exists():
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-
-        entries = payload.get("foods", payload) if isinstance(payload, dict) else payload
-        if not isinstance(entries, list):
-            continue
-
-        for entry in entries:
-            if not isinstance(entry, dict) or "name" not in entry or "kcal" not in entry:
-                continue
-            aliases = entry.get("aliases") or []
-            if isinstance(aliases, str):
-                aliases = [aliases]
-            foods.append(
-                {
-                    "name": str(entry["name"]),
-                    "kcal": int(entry["kcal"]),
-                    "aliases": [str(alias) for alias in [entry["name"], *aliases] if str(alias).strip()],
-                }
-            )
-
-    known_aliases = {normalize_food_text(alias) for food in foods for alias in food["aliases"]}
-    for entry in FALLBACK_DICTIONARY_FOODS:
-        if normalize_food_text(entry["name"]) not in known_aliases:
-            foods.append(entry)
-
-    return foods
-
-
-FOOD_DICTIONARY = load_food_dictionary()
-
-
-def parse_meal_items(text: str) -> list[str]:
-    normalized = str(text or "")
-    normalized = re.sub(r"[()（）\[\]【】]", "、", normalized)
-    normalized = re.sub(r"[,\n\r;/／|・]+", "、", normalized)
-    items = [item.strip(" \t-:：。") for item in normalized.split("、")]
-    return [item for item in items if item]
-
-
-def quantity_for_item(item_text: str, alias: str) -> int:
-    item = normalize_food_text(item_text)
-    normalized_alias = re.escape(normalize_food_text(alias))
-    match = re.search(rf"{normalized_alias}\s*(\d+)\s*(?:個|本|杯|枚|缶|パック|袋|人前|食)", item)
-    if match:
-        return max(int(match.group(1)), 1)
-    return 1
-
-
-def best_food_match(item: str) -> tuple[dict[str, Any], str] | None:
-    normalized_item = normalize_food_text(item)
-    candidates: list[tuple[int, dict[str, Any], str]] = []
-    for food in FOOD_DICTIONARY:
-        for alias in food["aliases"]:
-            normalized_alias = normalize_food_text(alias)
-            if normalized_alias and normalized_alias in normalized_item:
-                candidates.append((len(normalized_alias), food, alias))
-    if not candidates:
-        return None
-    _, food, alias = max(candidates, key=lambda candidate: candidate[0])
-    return food, alias
-
-
-def fallback_kcal_for_unknown_items(meal_type: str, unknown_count: int) -> int:
-    if unknown_count <= 0:
-        return 0
-    per_item = {
-        "朝": 120,
-        "昼": 150,
-        "夜": 150,
-        "間食": 120,
-        "仕事中のドリンク": 80,
-    }.get(meal_type, 120)
-    return unknown_count * per_item
-
-
-def estimate_calorie_detail(text: str, meal_type: str = "") -> dict[str, Any]:
-    """Dictionary-based rough calorie estimate with confidence metadata."""
-    parsed_foods = parse_food_text(str(text or ""), meal_type=meal_type)
-    if parsed_foods["is_zero_meal"]:
-        return {
-            "kcal": 0,
-            "confidence": "high",
-            "detected_foods": ["zero_meal"],
-            "unknown_items": [],
-            "parsed_foods": parsed_foods,
-        }
-
-    if not text or not str(text).strip():
-        return {
-            "kcal": 0,
-            "confidence": "low",
-            "detected_foods": [],
-            "unknown_items": [],
-            "parsed_foods": parsed_foods,
-        }
-
-    explicit_kcal = parsed_foods["explicit_nutrition"].get("calories_kcal")
-    if explicit_kcal is not None:
-        explicit_selection = select_nutrition_source(
-            [{"source": explicit_user_label_source(notes="Explicit nutrition extracted from meal text."), "nutrition": parsed_foods["explicit_nutrition"]}]
-        )
-        return {
-            "kcal": int(explicit_kcal),
-            "confidence": "high",
-            "detected_foods": ["explicit_kcal"],
-            "unknown_items": [],
-            "parsed_foods": parsed_foods,
-            "nutrition_source_decisions": [explicit_selection],
-        }
-
-    items = parsed_foods["items"] or [
-        {
-            "raw_text": item,
-            "canonical_name": item,
-            "quantity": 1,
-            "quantity_detail": {"amount": 1, "raw": None},
-        }
-        for item in parse_meal_items(str(text))
-    ]
-    detected_foods: list[str] = []
-    unknown_items: list[str] = []
-    nutrition_source_decisions: list[dict[str, Any]] = []
-    personal_foods = PERSONAL_FOOD_REPOSITORY.list_foods(PERSONAL_FOOD_USER_ID)
-    total = 0
-
-    for item in items:
-        item_text = str(item.get("canonical_name") or item.get("raw_text") or "")
-        personal_resolution = resolve_personal_food(item, personal_foods)
-        personal_food = personal_resolution.get("food")
-        if personal_food is not None:
-            personal_selection = personal_food_source_selection(personal_food)
-            selected = personal_selection.get("selected")
-            lookup_result = {
-                "matched": bool(selected),
-                "nutrition": selected.get("nutrition") if selected else None,
-                "food": {"canonical_name": personal_food.get("canonical_name")},
-                "source_selection": personal_selection,
-            }
-        else:
-            lookup_result = lookup_food(item)
-        if lookup_result["matched"]:
-            lookup_total = calculate_lookup_total(lookup_result, item.get("quantity"), item.get("unit"))
-            lookup_kcal = lookup_total["calories_kcal"]
-            if lookup_kcal is None or lookup_total["needs_review"]:
-                unknown_items.append(str(item.get("raw_text") or item_text))
-                continue
-            total += float(lookup_kcal)
-            detected_foods.append(str(lookup_result["food"]["canonical_name"]))
-            if lookup_result["source_selection"]:
-                nutrition_source_decisions.append(lookup_result["source_selection"])
-            continue
-
-        match = best_food_match(item_text) or best_food_match(str(item.get("raw_text") or ""))
-        if not match:
-            unknown_items.append(str(item.get("raw_text") or item_text))
-            continue
-        food, alias = match
-        quantity_detail = item.get("quantity_detail") if isinstance(item, dict) else {}
-        quantity = item.get("quantity", 1) if isinstance(item, dict) else 1
-        if quantity is None:
-            quantity = 1
-        if not quantity_detail or quantity_detail.get("raw") is None:
-            quantity = quantity_for_item(str(item.get("raw_text") or item_text), alias)
-        elif quantity_detail.get("unit") in {"g", "ml"}:
-            quantity = 1
-        total += int(food["kcal"]) * quantity
-        detected_foods.append(str(food["name"]))
-        nutrition_source_decisions.append(
-            select_nutrition_source(
-                [
-                    {
-                        "source": internal_nutrition_source(
-                            "legacy_dictionary",
-                            f"legacy-dictionary:{food['name']}",
-                            notes="Existing BodyOS dictionary estimate.",
-                        ),
-                        "nutrition": {"calories_kcal": int(food["kcal"]), "basis": "per_item"},
-                    }
-                ]
-            )
-        )
-
-    if total == 0 and meal_type in MEAL_FALLBACK:
-        total = MEAL_FALLBACK[meal_type]
-        confidence = "low"
-        nutrition_source_decisions.append(
-            select_nutrition_source(
-                [
-                    {
-                        "source": internal_nutrition_source(
-                            "fallback_estimate",
-                            f"fallback-estimate:{meal_type}",
-                            notes="Meal-type fallback estimate for unresolved food text.",
-                        ),
-                        "nutrition": {"calories_kcal": total, "basis": "total"},
-                    }
-                ]
-            )
-        )
-    else:
-        total += fallback_kcal_for_unknown_items(meal_type, len(unknown_items))
-        item_count = max(len(items), 1)
-        coverage = len(detected_foods) / item_count
-        if unknown_items:
-            confidence = "medium" if detected_foods else "low"
-        elif coverage >= 0.8:
-            confidence = "high"
-        elif coverage >= 0.4:
-            confidence = "medium"
-        else:
-            confidence = "low"
-
+def estimate_calorie_detail(
+    text: str,
+    meal_type: str = "",
+    *,
+    knowledge: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compatibility projection of the shared Food Resolver result."""
+    resolution = resolve_food_text(
+        str(text or ""),
+        meal_type,
+        knowledge=knowledge if knowledge is not None else current_food_knowledge(),
+    )
     return {
-        "kcal": int(round(total)),
-        "confidence": confidence,
-        "detected_foods": detected_foods,
-        "unknown_items": unknown_items,
-        "parsed_foods": parsed_foods,
-        "nutrition_source_decisions": nutrition_source_decisions,
+        "kcal": resolution["kcal"],
+        "confidence": resolution["confidence"],
+        "detected_foods": resolution["detected_foods"],
+        "unknown_items": resolution["unknown_items"],
+        "parsed_foods": resolution["parsed_foods"],
+        "nutrition_source_decisions": resolution["nutrition_source_decisions"],
+        "resolution_counts": resolution["resolution_counts"],
+        "food_resolution": resolution,
     }
 
 
@@ -598,9 +321,9 @@ def remember_saved_meals(
     record_date: str,
     operation_id: str,
     used_at: str,
-) -> int:
+) -> dict[str, int]:
     """Persist Personal Food Master encounters only for newly saved/imported records."""
-    encounter_count = 0
+    summary = {"encounter_count": 0, **{origin: 0 for origin in RESOLUTION_ORIGINS}}
     for meal_type, text, detail in meals:
         if not str(text or "").strip():
             continue
@@ -608,18 +331,44 @@ def remember_saved_meals(
         parsed_foods = detail.get("parsed_foods") if isinstance(detail, dict) else None
         if not isinstance(parsed_foods, dict):
             parsed_foods = parse_food_text(str(text), meal_type)
-        encounter_count += len(
-            remember_food_encounters(
-                PERSONAL_FOOD_REPOSITORY,
-                PERSONAL_FOOD_USER_ID,
-                parsed_foods,
-                meal_type=meal_type,
-                record_date=record_date,
-                operation_id=content_operation_id,
-                used_at=used_at,
-            )
+        resolution = detail.get("food_resolution") if isinstance(detail, dict) else None
+        if not isinstance(resolution, dict):
+            resolution = resolve_food_text(str(text), meal_type, knowledge=current_food_knowledge())
+        for origin in RESOLUTION_ORIGINS:
+            summary[origin] += int((resolution.get("resolution_counts") or {}).get(origin, 0))
+        encounters = remember_food_encounters(
+            PERSONAL_FOOD_REPOSITORY,
+            PERSONAL_FOOD_USER_ID,
+            parsed_foods,
+            meal_type=meal_type,
+            record_date=record_date,
+            operation_id=content_operation_id,
+            used_at=used_at,
+            resolution=resolution,
         )
-    return encounter_count
+        summary["encounter_count"] += len(encounters)
+    return summary
+
+
+def empty_food_resolution_summary() -> dict[str, int]:
+    return {"encounter_count": 0, **{origin: 0 for origin in RESOLUTION_ORIGINS}}
+
+
+def merge_food_resolution_summary(target: dict[str, int], source: dict[str, int]) -> None:
+    for key in target:
+        target[key] += int(source.get(key, 0))
+
+
+def render_food_import_summary(summary: dict[str, int]) -> None:
+    st.markdown("**Food Resolution Summary**")
+    st.write(
+        f"Food Master: {summary.get('personal', 0)}件 / "
+        f"Official: {summary.get('official', 0)}件 / "
+        f"Generic: {summary.get('generic', 0)}件 / "
+        f"Fallback: {summary.get('fallback', 0)}件"
+    )
+    if summary.get("explicit", 0):
+        st.caption(f"Explicit Nutrition: {summary['explicit']}件")
 
 
 def estimate_calories(text: str, meal_type: str = "") -> int:
@@ -1040,7 +789,13 @@ if df.empty:
 else:
     df = df.sort_values("日付")
     df = ensure_body_scores(df)
-    render_dashboard(df, TARGET_WEIGHT, predict_target_date, training_counted)
+    render_dashboard(
+        df,
+        TARGET_WEIGHT,
+        predict_target_date,
+        training_counted,
+        food_knowledge=current_food_knowledge(),
+    )
 
 st.header("今日の記録")
 with st.form("daily_record_form"):
@@ -1152,7 +907,7 @@ if submitted:
     try:
         save_data(df)
         try:
-            encounter_count = remember_saved_meals(
+            food_summary = remember_saved_meals(
                 [
                     ("朝", breakfast, breakfast_detail),
                     ("昼", lunch, lunch_detail),
@@ -1165,7 +920,7 @@ if submitted:
                 used_at=pd.to_datetime(record_date).isoformat(),
             )
         except Exception as exc:
-            encounter_count = 0
+            food_summary = empty_food_resolution_summary()
             st.warning(f"CSVは保存しましたが、Personal Food Masterの記録に失敗しました: {exc}")
         st.success(
             f"CSVへ保存しました。合計カロリーは約{estimated_calories:,}kcal、"
@@ -1176,8 +931,9 @@ if submitted:
             f"間食 {snacks_kcal:,}kcal / ドリンク {drinks_kcal:,}kcal"
         )
         st.write(f"カロリー推定信頼度: {calorie_confidence}")
-        if encounter_count:
-            st.caption(f"Personal Food Masterに{encounter_count}件の食品遭遇を記録しました。")
+        if food_summary["encounter_count"]:
+            st.caption(f"Personal Food Masterに{food_summary['encounter_count']}件の食品遭遇を記録しました。")
+        render_food_import_summary(food_summary)
     except Exception as exc:
         st.error(f"保存に失敗しました: {exc}")
 
@@ -1211,10 +967,10 @@ if st.button("ChatGPTログをCSVに追加"):
         imported_rows = pd.DataFrame(normalized_records)
         df, added_count, updated_count = upsert_records(df, imported_rows)
         save_data(df)
-        encounter_count = 0
+        food_summary = empty_food_resolution_summary()
         try:
             for imported_record in normalized_records:
-                encounter_count += remember_saved_meals(
+                imported_summary = remember_saved_meals(
                     [
                         (meal_type, str(imported_record.get(column, "")), {})
                         for meal_type, column in [
@@ -1229,14 +985,16 @@ if st.button("ChatGPTログをCSVに追加"):
                     operation_id=f"json-import:{pd.to_datetime(imported_record['日付']).date().isoformat()}",
                     used_at=pd.to_datetime(imported_record["日付"]).isoformat(),
                 )
+                merge_food_resolution_summary(food_summary, imported_summary)
         except Exception as exc:
             st.warning(f"CSVは保存しましたが、Personal Food Masterの記録に失敗しました: {exc}")
         st.success(
             f"{len(imported_rows)}件のChatGPTログをrecords.csvへ保存しました。"
             f"追加: {added_count}件 / 上書き: {updated_count}件"
         )
-        if encounter_count:
-            st.caption(f"Personal Food Masterに{encounter_count}件の食品遭遇を記録しました。")
+        if food_summary["encounter_count"]:
+            st.caption(f"Personal Food Masterに{food_summary['encounter_count']}件の食品遭遇を記録しました。")
+        render_food_import_summary(food_summary)
     except json.JSONDecodeError as exc:
         st.error(f"JSONの形式を確認してください: {exc}")
     except RecordValidationError as exc:
@@ -1256,6 +1014,7 @@ if not df.empty:
         except Exception as exc:
             st.error(f"Body Scoreの再計算に失敗しました: {exc}")
 
+render_food_knowledge_dashboard(PERSONAL_FOOD_REPOSITORY, PERSONAL_FOOD_USER_ID)
 render_food_master_management(PERSONAL_FOOD_REPOSITORY, PERSONAL_FOOD_USER_ID)
 
 st.caption("注意: カロリーは概算です。正確にしたい日は手入力欄を使ってください。")
