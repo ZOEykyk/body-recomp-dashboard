@@ -140,14 +140,71 @@ def remember_food_encounters(
     knowledge: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Append encounters and create reviewable knowledge only for a newly saved record."""
+    result = _remember_food_encounters(
+        repository,
+        user_id,
+        parsed_foods,
+        meal_type=meal_type,
+        record_date=record_date,
+        operation_id=operation_id,
+        used_at=used_at,
+        resolution=resolution,
+        knowledge=knowledge,
+        raise_on_error=True,
+    )
+    return result["encounters"]
+
+
+def remember_food_encounters_with_summary(
+    repository: FoodMasterRepository,
+    user_id: str,
+    parsed_foods: dict[str, Any],
+    *,
+    meal_type: str,
+    record_date: str,
+    operation_id: str,
+    used_at: str | None = None,
+    resolution: dict[str, Any] | None = None,
+    knowledge: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Persist encounters and expose operational counts without changing domain records."""
+    return _remember_food_encounters(
+        repository,
+        user_id,
+        parsed_foods,
+        meal_type=meal_type,
+        record_date=record_date,
+        operation_id=operation_id,
+        used_at=used_at,
+        resolution=resolution,
+        knowledge=knowledge,
+        raise_on_error=False,
+    )
+
+
+def _remember_food_encounters(
+    repository: FoodMasterRepository,
+    user_id: str,
+    parsed_foods: dict[str, Any],
+    *,
+    meal_type: str,
+    record_date: str,
+    operation_id: str,
+    used_at: str | None,
+    resolution: dict[str, Any] | None,
+    knowledge: dict[str, Any] | None,
+    raise_on_error: bool,
+) -> dict[str, Any]:
     if not isinstance(parsed_foods, dict) or parsed_foods.get("is_zero_meal"):
-        return []
+        return {"encounters": [], "saved": 0, "duplicates": 0, "failed": 0, "errors": []}
     timestamp = used_at or utc_now()
-    foods = repository.list_foods(user_id)
     if not isinstance(resolution, dict):
         from food_resolver import build_food_knowledge_snapshot, resolve_food_text
 
-        resolver_knowledge = knowledge or build_food_knowledge_snapshot(foods)
+        if knowledge is None:
+            repository_snapshot = repository.build_snapshot(user_id)
+            knowledge = build_food_knowledge_snapshot(repository_snapshot["personal_foods"])
+        resolver_knowledge = knowledge
         resolution = resolve_food_text(
             str(parsed_foods.get("raw_text") or ""),
             meal_type,
@@ -159,6 +216,9 @@ def remember_food_encounters(
         if isinstance(result, dict)
     }
     encounters: list[dict[str, Any]] = []
+    duplicates = 0
+    failed = 0
+    errors: list[str] = []
     for item in parsed_foods.get("items") or []:
         if not isinstance(item, dict) or not item.get("original_fragment"):
             continue
@@ -169,8 +229,6 @@ def remember_food_encounters(
             str(item["original_fragment"]),
             operation_id,
         )
-        if repository.get_encounter_by_idempotency(user_id, idempotency_key) is not None:
-            continue
         item_resolution = resolved_items.get(int(item.get("index", -1)), {})
         selected = item_resolution.get("selected") or {}
         source_selection = item_resolution.get("source_selection") or select_nutrition_source([])
@@ -184,7 +242,12 @@ def remember_food_encounters(
 
         candidate_reason: str | None = None
         if master_food is None:
-            master_food = find_existing_candidate(item, foods)
+            candidates = [
+                candidate
+                for candidate in repository.find_food_candidates(user_id, item)
+                if candidate.get("status") == "candidate"
+            ]
+            master_food = deepcopy(candidates[0]) if len(candidates) == 1 else None
             if master_food is not None:
                 candidate_reason = "existing_candidate"
                 personal_resolution = {"status": "candidate_reused", "food": master_food}
@@ -200,8 +263,6 @@ def remember_food_encounters(
         aliases.add(str(item["original_fragment"]))
         master_food["aliases"] = sorted(alias for alias in aliases if alias)
         master_food = touch_food_usage(master_food, timestamp)
-        master_food = repository.upsert_food(user_id, master_food)
-        foods = [food for food in foods if food.get("food_id") != master_food["food_id"]] + [master_food]
 
         encounter = {
             "encounter_id": new_encounter_id(),
@@ -231,5 +292,26 @@ def remember_food_encounters(
             "created_at": timestamp,
             "schema_version": FOOD_ENCOUNTER_SCHEMA_VERSION,
         }
-        encounters.append(repository.append_encounter(user_id, encounter))
-    return encounters
+        try:
+            persistence = repository.save_encounter_idempotently(user_id, master_food, encounter)
+        except Exception as exc:
+            if raise_on_error:
+                raise
+            failed += 1
+            errors.append(f"{item.get('original_fragment')}: {type(exc).__name__}")
+            continue
+        if persistence.get("duplicate"):
+            duplicates += 1
+            continue
+        stored_food = persistence.get("food") if isinstance(persistence.get("food"), dict) else master_food
+        stored_encounter = (
+            persistence.get("encounter") if isinstance(persistence.get("encounter"), dict) else encounter
+        )
+        encounters.append(stored_encounter)
+    return {
+        "encounters": encounters,
+        "saved": len(encounters),
+        "duplicates": duplicates,
+        "failed": failed,
+        "errors": errors,
+    }

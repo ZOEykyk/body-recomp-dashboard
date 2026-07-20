@@ -49,7 +49,9 @@ Body Score / Coach feedback
 - `food_source_models.py`: One shared metadata contract for every nutrition source.
 - `food_source_policy.py`: Pure deterministic product-tier and source-level priority, freshness, validity, and conflict-resolution policy.
 - `food_master_models.py`: Personal Food Master record and encounter contracts.
-- `food_master_repository.py`: Repository interface plus the local JSON/JSONL adapter for future database migration.
+- `food_master_repository.py`: Storage-neutral Repository interface, query defaults, idempotent save unit, and local JSON/JSONL adapter.
+- `supabase_food_master_repository.py`: Supabase/PostgREST adapter that maps normalized tables back to the existing domain model and uses an atomic Encounter RPC.
+- `food_repository_factory.py`: `json_only`, `fallback_json`, and `strict_supabase` repository selection and startup-safe failure handling.
 - `personal_food_master.py`: Personal identity resolution, candidate creation, promotion, usage tracking, and encounter logging.
 - `food_knowledge_dashboard.py`: Read-only Food Knowledge growth metrics and responsive Streamlit projection.
 - `nutrition_targets.py`: Centralized, profile-safe target defaults and formulas.
@@ -62,7 +64,7 @@ Body Score / Coach feedback
 
 ## Current Storage
 
-The current storage model is CSV-first. Locally, records are saved to `records.csv`. In hosted usage, the app can persist `records.csv` through the GitHub Contents API.
+Daily records remain CSV-first. Locally, records are saved to `records.csv`; hosted usage can persist that file through the GitHub Contents API. Food Knowledge is a separate bounded context: Personal foods, aliases, nutrition sources/facts, and Encounters can use Supabase while the JSON/JSONL adapter remains available for fallback and rollback.
 
 ## Current Data Flow
 
@@ -98,13 +100,13 @@ nutrition resolution
 
 The parser understands text structure and does not own nutrition. `food_lookup.py` remains the lower-level official-catalog adapter. Application consumers call `food_resolver.py`, which collects every candidate before `food_source_policy.py` applies the fixed order Explicit, Personal, Official, Generic, and Fallback. Source validity, freshness, verification, and same-tier conflicts are evaluated centrally.
 
-PR9 adds a Personal Food Master before seed lookup. It separates append-only food encounters from reusable food records, aliases, source candidates, and usage statistics. Unknown or estimated encounters remain candidates; only reviewed candidates or foods supported by a sufficiently authoritative source become active. The local adapter stores new knowledge independently from `records.csv`, behind a repository interface intended for a future database and multi-user implementation. It is a local MVP: Streamlit Cloud restart or redeploy can discard its JSON/JSONL files, and the existing GitHub persistence currently applies only to `records.csv`.
+PR9 adds a Personal Food Master before seed lookup. It separates append-only food encounters from reusable food records, aliases, source candidates, and usage statistics. Unknown or estimated encounters remain candidates; only reviewed candidates or foods supported by a sufficiently authoritative source become active. PR12 adds a normalized Supabase adapter without changing the Resolver or intelligence interfaces. JSON/JSONL remains available; GitHub persistence still applies only to `records.csv`.
 
-Personal Food Master encounter writes are idempotent. A stable fingerprint includes owner, date, meal type, normalized fragment, save/import identity, and a normalized meal-content hash. It prevents retries or repeated imports from incrementing usage more than once, while changed content or quantity on the same date becomes a new encounter. The compact Streamlit management section is isolated from the dashboard renderer and works directly through `FoodMasterRepository` for active/candidate review, alias management, linking, and archive actions.
+Personal Food Master encounter writes are idempotent. A stable fingerprint includes owner, date, meal type, normalized fragment, save/import identity, and a normalized meal-content hash. Supabase enforces the key with a unique constraint and saves the Encounter plus usage increment in one RPC transaction. It prevents retries or repeated imports from incrementing usage more than once, while changed content or quantity on the same date becomes a new encounter. The compact management UI remains isolated and works only through `FoodMasterRepository`.
 
 Nutrition Intelligence is a separate read-time layer after nutrition resolution. `dashboard.py` calls the pure `analyze_nutrition(record, history, profile, now, food_knowledge)` interface. The engine passes the copied snapshot to the shared Resolver and has no Streamlit, file, network, repository, or LLM dependency.
 
-See [Food Knowledge Foundation](FOOD_KNOWLEDGE.md) for resolver contracts, repository boundaries, PR12/PR13 handoff, and known technical debt.
+See [Food Knowledge Foundation](FOOD_KNOWLEDGE.md) for resolver contracts and [Food Knowledge Supabase Operations](SUPABASE_FOOD_KNOWLEDGE.md) for schema, RLS, migration, rollback, and failure handling.
 
 ## Dashboard Layer
 

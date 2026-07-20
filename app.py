@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import base64
 import json
+import logging
 import os
 import re
 from io import StringIO
@@ -25,18 +26,19 @@ from data_integrity import (
 )
 from dashboard import render_dashboard
 from food_master_repository import JsonFoodMasterRepository
+from food_repository_factory import create_food_master_repository
 from food_master_models import meal_content_fingerprint
 from food_master_ui import render_food_master_management
 from food_knowledge_dashboard import render_food_knowledge_dashboard
 from food_parser import parse_food_text
 from food_resolver import RESOLUTION_ORIGINS, build_food_knowledge_snapshot, resolve_food_text
-from personal_food_master import remember_food_encounters
+from personal_food_master import remember_food_encounters_with_summary
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
 DEFAULT_GITHUB_REPOSITORY = "ZOEykyk/body-recomp-dashboard"
 DEFAULT_RECORDS_BRANCH = "main"
-PERSONAL_FOOD_USER_ID = "local-default"
+DEFAULT_PERSONAL_FOOD_USER_ID = "local-default"
 PERSONAL_FOOD_MASTER_FILE = "personal_food_master.json"
 FOOD_ENCOUNTERS_FILE = "food_encounters.jsonl"
 BODY_SCORE_COLUMNS = ["Body Score"] + SCORE_COMPONENTS
@@ -149,10 +151,7 @@ NUMERIC_COLUMNS = [
 
 CALORIE_CONFIDENCE_LEVELS = {"low": 0, "medium": 1, "high": 2}
 
-PERSONAL_FOOD_REPOSITORY = JsonFoodMasterRepository(
-    Path(__file__).with_name(PERSONAL_FOOD_MASTER_FILE),
-    Path(__file__).with_name(FOOD_ENCOUNTERS_FILE),
-)
+LOGGER = logging.getLogger(__name__)
 
 JSON_KEY_ALIASES = {
     "日付": ["日付", "date", "record_date", "記録日"],
@@ -211,6 +210,27 @@ def get_config_value(name: str, default: str = "") -> str:
     except Exception:
         value = ""
     return str(value or os.environ.get(name, default) or "").strip()
+
+
+def food_repository_config() -> dict[str, str]:
+    names = [
+        "FOOD_KNOWLEDGE_REPOSITORY",
+        "FOOD_KNOWLEDGE_MODE",
+        "FOOD_KNOWLEDGE_USER_ID",
+        "SUPABASE_URL",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_TIMEOUT_SECONDS",
+    ]
+    return {name: get_config_value(name) for name in names}
+
+
+PERSONAL_FOOD_USER_ID = get_config_value("FOOD_KNOWLEDGE_USER_ID", DEFAULT_PERSONAL_FOOD_USER_ID)
+LOCAL_FOOD_REPOSITORY = JsonFoodMasterRepository(
+    Path(__file__).with_name(PERSONAL_FOOD_MASTER_FILE),
+    Path(__file__).with_name(FOOD_ENCOUNTERS_FILE),
+)
+PERSONAL_FOOD_REPOSITORY = create_food_master_repository(food_repository_config(), LOCAL_FOOD_REPOSITORY)
 
 
 def github_storage_config() -> dict[str, str]:
@@ -287,7 +307,11 @@ def write_github_records(csv_text: str) -> None:
 
 
 def current_food_knowledge() -> dict[str, Any]:
-    repository_snapshot = PERSONAL_FOOD_REPOSITORY.get_knowledge_snapshot(PERSONAL_FOOD_USER_ID)
+    try:
+        repository_snapshot = PERSONAL_FOOD_REPOSITORY.build_snapshot(PERSONAL_FOOD_USER_ID)
+    except Exception as exc:
+        LOGGER.warning("Food Knowledge read failed: %s", type(exc).__name__)
+        repository_snapshot = {"personal_foods": []}
     return build_food_knowledge_snapshot(repository_snapshot["personal_foods"])
 
 
@@ -323,7 +347,13 @@ def remember_saved_meals(
     used_at: str,
 ) -> dict[str, int]:
     """Persist Personal Food Master encounters only for newly saved/imported records."""
-    summary = {"encounter_count": 0, **{origin: 0 for origin in RESOLUTION_ORIGINS}}
+    summary = {
+        "encounter_count": 0,
+        "encounter_saved": 0,
+        "duplicate_skipped": 0,
+        "save_failed": 0,
+        **{origin: 0 for origin in RESOLUTION_ORIGINS},
+    }
     for meal_type, text, detail in meals:
         if not str(text or "").strip():
             continue
@@ -336,7 +366,7 @@ def remember_saved_meals(
             resolution = resolve_food_text(str(text), meal_type, knowledge=current_food_knowledge())
         for origin in RESOLUTION_ORIGINS:
             summary[origin] += int((resolution.get("resolution_counts") or {}).get(origin, 0))
-        encounters = remember_food_encounters(
+        persistence = remember_food_encounters_with_summary(
             PERSONAL_FOOD_REPOSITORY,
             PERSONAL_FOOD_USER_ID,
             parsed_foods,
@@ -346,12 +376,21 @@ def remember_saved_meals(
             used_at=used_at,
             resolution=resolution,
         )
-        summary["encounter_count"] += len(encounters)
+        summary["encounter_count"] += int(persistence["saved"])
+        summary["encounter_saved"] += int(persistence["saved"])
+        summary["duplicate_skipped"] += int(persistence["duplicates"])
+        summary["save_failed"] += int(persistence["failed"])
     return summary
 
 
 def empty_food_resolution_summary() -> dict[str, int]:
-    return {"encounter_count": 0, **{origin: 0 for origin in RESOLUTION_ORIGINS}}
+    return {
+        "encounter_count": 0,
+        "encounter_saved": 0,
+        "duplicate_skipped": 0,
+        "save_failed": 0,
+        **{origin: 0 for origin in RESOLUTION_ORIGINS},
+    }
 
 
 def merge_food_resolution_summary(target: dict[str, int], source: dict[str, int]) -> None:
@@ -369,6 +408,13 @@ def render_food_import_summary(summary: dict[str, int]) -> None:
     )
     if summary.get("explicit", 0):
         st.caption(f"Explicit Nutrition: {summary['explicit']}件")
+    st.caption(
+        f"Encounter saved: {summary.get('encounter_saved', summary.get('encounter_count', 0))}件 / "
+        f"Duplicate skipped: {summary.get('duplicate_skipped', 0)}件 / "
+        f"Save failed: {summary.get('save_failed', 0)}件"
+    )
+    if summary.get("save_failed", 0):
+        st.warning("一部のFood Encounterを保存できませんでした。records.csvの保存結果には影響ありません。")
 
 
 def estimate_calories(text: str, meal_type: str = "") -> int:
