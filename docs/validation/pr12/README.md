@@ -14,4 +14,4 @@ The captures confirm that Storage, Connection, repository implementation, last r
 - Actual Streamlit render: confirmed locally.
 - Local JSON mode and durability warning: confirmed.
 - Streamlit exception: none observed.
-- Hosted Supabase persistence and Streamlit Cloud restart: not run because no project URL or service-role secret is available in this workspace. Follow `docs/SUPABASE_FOOD_KNOWLEDGE.md` after deployment.
+- Hosted Supabase persistence and Streamlit Cloud restart: not run because no project URL or secret/service-role credential is available in this workspace. Follow `docs/SUPABASE_FOOD_KNOWLEDGE.md` after deployment.

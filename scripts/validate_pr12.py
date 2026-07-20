@@ -23,14 +23,15 @@ from food_repository_factory import (
 from food_resolver import build_food_knowledge_snapshot, resolve_food_text
 from personal_food_master import remember_food_encounters_with_summary
 from scripts.migrate_food_knowledge_to_supabase import build_migration_report
-from supabase_food_master_repository import SupabaseFoodMasterRepository
+from supabase_food_master_repository import SupabaseFoodMasterRepository, SupabaseRestClient
 
 
 class FakeSupabaseClient:
-    def __init__(self) -> None:
+    def __init__(self, *, schema_version: str = "20260720.2") -> None:
+        self.schema_version = schema_version
         self.foods: dict[str, dict] = {}
         self.aliases: dict[tuple[str, str], dict] = {}
-        self.sources: dict[str, dict] = {}
+        self.sources: dict[tuple[str, str], dict] = {}
         self.facts: dict[str, dict] = {}
         self.encounters: dict[tuple[str, str], dict] = {}
 
@@ -77,15 +78,18 @@ class FakeSupabaseClient:
             alias_row = {**deepcopy(alias), "food_id": food_id, "owner_user_id": owner}
             self.aliases[(food_id, str(alias_row["normalized_alias"]))] = alias_row
         for source in payload.get("nutrition_sources") or []:
-            self.sources[str(source["source_id"])] = {**deepcopy(source), "food_id": food_id}
+            source_key = (food_id, str(source["source_id"]))
+            self.sources[source_key] = {**deepcopy(source), "food_id": food_id}
         for fact in payload.get("nutrition_facts") or []:
-            key = f"{fact.get('source_id')}:{fact.get('basis')}"
+            key = f"{food_id}:{fact.get('source_id')}:{fact.get('basis')}"
             self.facts[key] = {**deepcopy(fact), "nutrition_fact_id": key, "food_id": food_id}
         return deepcopy(self.foods[food_id])
 
     def request(self, method: str, path: str, *, payload=None, prefer=None):
         table, _, query_string = path.partition("?")
         query = parse_qs(query_string)
+        if table == "rpc/food_knowledge_schema_version_v1":
+            return self.schema_version
         if table == "rpc/upsert_food_knowledge_v1":
             food = self._persist_food(payload["p_owner_user_id"], payload["p_food_payload"], increment=False)
             return {"food": food}
@@ -137,15 +141,79 @@ def validation_food() -> dict:
 
 def main() -> None:
     records_before = (ROOT / "records.csv").read_bytes()
+
+    captured_headers: list[dict[str, str]] = []
+
+    def capture_transport(api_request, *, timeout):
+        captured_headers.append({key.lower(): value for key, value in api_request.header_items()})
+        raise OSError("intentional transport stop")
+
+    for api_key in ("sb_secret_acceptance", "legacy.jwt.key"):
+        try:
+            SupabaseRestClient("https://example.supabase.co", api_key, transport=capture_transport).request(
+                "GET", "foods?select=food_id"
+            )
+        except Exception:
+            pass
+    if "authorization" in captured_headers[0]:
+        raise AssertionError("opaque Supabase keys must not be sent as Bearer JWTs")
+    assert_equal(captured_headers[0]["apikey"], "sb_secret_acceptance", "opaque apikey header")
+    assert_equal(captured_headers[1]["authorization"], "Bearer legacy.jwt.key", "legacy JWT header")
+
     fake = FakeSupabaseClient()
     supabase = SupabaseFoodMasterRepository(fake)
     supabase.health_check()
+    try:
+        SupabaseFoodMasterRepository(FakeSupabaseClient(schema_version="outdated")).health_check()
+    except Exception:
+        pass
+    else:
+        raise AssertionError("schema version mismatch must fail health check")
 
     food = validation_food()
     food["aliases"].append("いつものチキン")
     stored = supabase.upsert_food("user-a", food)
     assert_equal(stored["food_id"], food["food_id"], "Supabase upsert")
     assert_equal(supabase.find_by_alias("user-a", "いつものチキン")[0]["food_id"], food["food_id"], "alias query")
+
+    legacy_counts = deepcopy(food)
+    legacy_counts["food_id"] = "pfm-legacy-counts"
+    legacy_counts["canonical_name"] = "Legacy Counts"
+    legacy_counts["aliases"] = ["Legacy Counts"]
+    legacy_counts["use_count"] = 2
+    legacy_counts["usage_count"] = 5
+    normalized_counts = supabase.upsert_food("legacy-owner", legacy_counts)
+    assert_equal(normalized_counts["use_count"], 5, "legacy use_count normalized")
+    assert_equal(normalized_counts["usage_count"], 5, "legacy usage_count normalized")
+
+    for suffix, calories in (("a", 111), ("b", 222)):
+        source_food = deepcopy(food)
+        source_food["food_id"] = f"pfm-shared-source-{suffix}"
+        source_food["canonical_name"] = f"明示ラベル食品{suffix}"
+        source_food["aliases"] = [f"明示ラベル食品{suffix}"]
+        source_food["nutrition_sources"] = [
+            {
+                "source": {
+                    "source_id": "explicit-user-label",
+                    "source_type": "explicit_user_label",
+                    "verification_status": "pending_review",
+                    "confidence": "high",
+                },
+                "nutrition": {"basis": "per_item", "calories_kcal": calories},
+            }
+        ]
+        supabase.upsert_food("source-owner", source_food)
+    source_foods = {item["canonical_name"]: item for item in supabase.list_foods("source-owner")}
+    assert_equal(
+        source_foods["明示ラベル食品a"]["nutrition_sources"][0]["nutrition"]["calories_kcal"],
+        111,
+        "source IDs are scoped to food A",
+    )
+    assert_equal(
+        source_foods["明示ラベル食品b"]["nutrition_sources"][0]["nutrition"]["calories_kcal"],
+        222,
+        "source IDs are scoped to food B",
+    )
 
     json_snapshot = build_food_knowledge_snapshot([food])
     supabase_snapshot = build_food_knowledge_snapshot(supabase.list_foods("user-a"))
@@ -253,6 +321,7 @@ def main() -> None:
     required_sql = [
         "unique (owner_user_id, idempotency_key)",
         "save_food_encounter_v1",
+        "food_knowledge_schema_version_v1",
         "idempotency_key is required",
         "hashtextextended(p_owner_user_id || '|' || (p_encounter ->> 'idempotency_key'), 1)",
         "row level security",
@@ -260,10 +329,32 @@ def main() -> None:
         "on delete cascade",
         "foods_personal_identity_active_uidx",
         "grant select on public.foods",
+        "primary key (food_id, source_id)",
+        "foreign key (food_id, owner_user_id)",
+        "references public.nutrition_sources(food_id, source_id)",
+        "unique (food_id, source_id, basis, serving_quantity, serving_unit)",
+        "check (use_count = usage_count)",
+        "encounter resolved food owner mismatch",
+        "only service role may write shared food knowledge",
+        "revoke insert, update, delete",
+        "to service_role",
     ]
     for requirement in required_sql:
         if requirement not in sql.lower():
             raise AssertionError(f"SQL contract missing: {requirement}")
+
+    required_documents = {
+        "docs/PR12_ACCEPTANCE_TEST.md": ["AT-01", "AT-08", "NOT RUN"],
+        "docs/FOOD_KNOWLEDGE_RUNBOOK.md": ["Backup Policy", "Rollback", "strict_supabase"],
+        "docs/PR12_DEPLOYMENT_CHECKLIST.md": ["Streamlit Cloud", "food_encounters", "20260720.2"],
+        "docs/PR12_MIGRATION_REVIEW.md": ["Primary keys", "RLS", "Remaining Verification"],
+        "supabase/verification/pr12_acceptance.sql": ["food_knowledge_schema_version_v1", "relrowsecurity"],
+    }
+    for path, expected_values in required_documents.items():
+        content = (ROOT / path).read_text(encoding="utf-8")
+        for expected in expected_values:
+            if expected not in content:
+                raise AssertionError(f"{path} missing acceptance contract: {expected}")
 
     assert_equal((ROOT / "records.csv").read_bytes(), records_before, "records.csv unchanged")
     print("PR12 Food Knowledge Supabase Migration validation passed")

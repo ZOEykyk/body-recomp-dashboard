@@ -113,6 +113,7 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - `(owner_user_id, idempotency_key)` is unique in durable storage. Encounter insertion and usage increment occur in one RPC transaction, so retrying identical content changes neither count.
 - Repository implementations expose copied personal-food and encounter snapshots plus filtered query APIs. Storage paths, serialization, credentials, and queries must not leak into Resolver or intelligence engines.
 - Personal Food ownership is explicit on every repository operation. Current `local-default` ownership is a single-user bridge; future Supabase Auth maps it to `auth.uid()` and RLS prevents cross-owner access.
+- Supabase nutrition sources are keyed by `(food_id, source_id)`, not `source_id` alone, because domain source IDs such as `explicit-user-label` may legitimately recur on different foods. Nutrition facts use the same food/source pair.
 - Food Knowledge failover never changes `records.csv`. JSON fallback may create unsynced Food Knowledge and must be reconciled explicitly after recovery.
 - Resolver counts and source provenance are runtime/encounter metadata. They are not new `records.csv` columns and do not rewrite historical calories.
 

@@ -13,6 +13,7 @@ from food_master_repository import FoodMasterRepository
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_SECONDS = 8.0
+EXPECTED_SCHEMA_VERSION = "20260720.2"
 ENCOUNTER_COLUMNS = {
     "encounter_id",
     "idempotency_key",
@@ -74,11 +75,12 @@ class SupabaseRestClient:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
         headers = {
             "apikey": self.api_key,
-            "Authorization": f"Bearer {self.api_key}",
             "Accept": "application/json",
             "Content-Type": "application/json",
             "User-Agent": "bodyos-food-knowledge/1.0",
         }
+        if not self.api_key.startswith("sb_"):
+            headers["Authorization"] = f"Bearer {self.api_key}"
         if prefer:
             headers["Prefer"] = prefer
         api_request = request.Request(f"{self.base_url}/rest/v1/{path.lstrip('/')}", data=data, method=method, headers=headers)
@@ -102,6 +104,11 @@ def _food_identity_key(food: dict[str, Any]) -> str:
 
 
 def _food_row(user_id: str, food: dict[str, Any]) -> dict[str, Any]:
+    usage_count = max(
+        int(food.get("use_count") or 0),
+        int(food.get("usage_count") or 0),
+        0,
+    )
     return {
         "food_id": food.get("food_id"),
         "owner_user_id": user_id,
@@ -117,8 +124,8 @@ def _food_row(user_id: str, food: dict[str, Any]) -> dict[str, Any]:
         "notes": food.get("notes"),
         "status": food.get("status") or "candidate",
         "review_status": food.get("review_status") or "pending_review",
-        "use_count": int(food.get("use_count", food.get("usage_count", 0)) or 0),
-        "usage_count": int(food.get("usage_count", food.get("use_count", 0)) or 0),
+        "use_count": usage_count,
+        "usage_count": usage_count,
         "first_used_at": food.get("first_used_at"),
         "last_used_at": food.get("last_used_at"),
         "created_at": food.get("created_at") or utc_now(),
@@ -223,11 +230,15 @@ def _hydrate_foods(
     aliases_by_food: dict[str, list[str]] = {}
     for alias in aliases:
         aliases_by_food.setdefault(str(alias.get("food_id")), []).append(str(alias.get("alias") or ""))
-    facts_by_source = {str(fact.get("source_id")): fact for fact in facts}
+    facts_by_source = {
+        (str(fact.get("food_id")), str(fact.get("source_id"))): fact
+        for fact in facts
+    }
     sources_by_food: dict[str, list[dict[str, Any]]] = {}
     for source in sources:
         source_id = str(source.get("source_id") or "")
-        nutrition = deepcopy(facts_by_source.get(source_id) or {})
+        food_id = str(source.get("food_id") or "")
+        nutrition = deepcopy(facts_by_source.get((food_id, source_id)) or {})
         for key in ("nutrition_fact_id", "source_id", "food_id", "created_at", "updated_at"):
             nutrition.pop(key, None)
         source_value = deepcopy(source)
@@ -254,10 +265,19 @@ class SupabaseFoodMasterRepository(FoodMasterRepository):
     def __init__(self, client: SupabaseRestClient) -> None:
         super().__init__()
         self.client = client
+        self._schema_version: str | None = None
 
     def health_check(self) -> None:
-        self.client.request("GET", "foods?select=food_id&limit=1")
-        self._mark_read()
+        try:
+            result = self.client.request("POST", "rpc/food_knowledge_schema_version_v1", payload={})
+            value = result[0] if isinstance(result, list) and result else result
+            if str(value or "") != EXPECTED_SCHEMA_VERSION:
+                raise SupabaseRepositoryError("Supabase Food Knowledge schema version mismatch")
+            self._schema_version = str(value)
+            self._mark_read()
+        except Exception as exc:
+            self._mark_error(exc)
+            raise
 
     def _select(self, table: str, query: str) -> list[dict[str, Any]]:
         try:
@@ -443,7 +463,7 @@ class SupabaseFoodMasterRepository(FoodMasterRepository):
         status.update(
             {
                 "storage": "Supabase",
-                "migration_status": "schema_ready" if not self._last_error else "unknown",
+                "migration_status": self._schema_version or "unknown",
                 "warning": None,
             }
         )
@@ -452,6 +472,7 @@ class SupabaseFoodMasterRepository(FoodMasterRepository):
 
 __all__ = [
     "DEFAULT_TIMEOUT_SECONDS",
+    "EXPECTED_SCHEMA_VERSION",
     "SupabaseFoodMasterRepository",
     "SupabaseRepositoryError",
     "SupabaseRestClient",

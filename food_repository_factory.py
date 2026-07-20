@@ -180,7 +180,13 @@ def create_food_master_repository(
         return json_repository
 
     url = str(config.get("SUPABASE_URL") or "").strip()
-    api_key = str(config.get("SUPABASE_SERVICE_ROLE_KEY") or config.get("SUPABASE_ANON_KEY") or "").strip()
+    api_key = str(
+        config.get("SUPABASE_SECRET_KEY")
+        or config.get("SUPABASE_SERVICE_ROLE_KEY")
+        or config.get("SUPABASE_PUBLISHABLE_KEY")
+        or config.get("SUPABASE_ANON_KEY")
+        or ""
+    ).strip()
     if not url or not api_key:
         reason = "Supabase secrets are not configured"
         LOGGER.warning("Food Knowledge Supabase repository unavailable: missing configuration")

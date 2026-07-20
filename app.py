@@ -218,6 +218,8 @@ def food_repository_config() -> dict[str, str]:
         "FOOD_KNOWLEDGE_MODE",
         "FOOD_KNOWLEDGE_USER_ID",
         "SUPABASE_URL",
+        "SUPABASE_PUBLISHABLE_KEY",
+        "SUPABASE_SECRET_KEY",
         "SUPABASE_ANON_KEY",
         "SUPABASE_SERVICE_ROLE_KEY",
         "SUPABASE_TIMEOUT_SECONDS",

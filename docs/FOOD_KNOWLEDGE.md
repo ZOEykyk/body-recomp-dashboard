@@ -66,7 +66,7 @@ After JSON import, BodyOS shows Food Master, Official, Generic, and Fallback res
 
 PR12 adds the Supabase adapter, normalized schema, RLS, indexes, RPC unit-of-work, repository modes, connection status UI, and idempotent JSON/JSONL migration. Operational setup and rollback are documented in [Food Knowledge Supabase Operations](SUPABASE_FOOD_KNOWLEDGE.md).
 
-The service role is server-only in the current single-user Streamlit deployment. Future authenticated calls should use a user JWT with `owner_user_id = auth.uid()::text`. Hosted persistence and restart recovery must still be verified against the configured Supabase project before removing retained JSON backups.
+The privileged secret/service-role credential is server-only in the current single-user Streamlit deployment. Future authenticated calls should use a user JWT with `owner_user_id = auth.uid()::text`. Hosted persistence and restart recovery must still be verified against the configured Supabase project before removing retained JSON backups.
 
 ## PR13 Handoff: Smart Food Capture
 

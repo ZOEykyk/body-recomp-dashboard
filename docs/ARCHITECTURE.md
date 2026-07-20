@@ -104,6 +104,8 @@ PR9 adds a Personal Food Master before seed lookup. It separates append-only foo
 
 Personal Food Master encounter writes are idempotent. A stable fingerprint includes owner, date, meal type, normalized fragment, save/import identity, and a normalized meal-content hash. Supabase enforces the key with a unique constraint and saves the Encounter plus usage increment in one RPC transaction. It prevents retries or repeated imports from incrementing usage more than once, while changed content or quantity on the same date becomes a new encounter. The compact management UI remains isolated and works only through `FoodMasterRepository`.
 
+Supabase writes from ordinary authenticated roles are RPC-only. The normalized schema ties aliases to both food and owner, and keys nutrition sources by food plus source ID so repeated domain identifiers remain valid without cross-food joins. Startup health requires schema version `20260720.2`; a partial or stale schema is treated as unavailable.
+
 Nutrition Intelligence is a separate read-time layer after nutrition resolution. `dashboard.py` calls the pure `analyze_nutrition(record, history, profile, now, food_knowledge)` interface. The engine passes the copied snapshot to the shared Resolver and has no Streamlit, file, network, repository, or LLM dependency.
 
 See [Food Knowledge Foundation](FOOD_KNOWLEDGE.md) for resolver contracts and [Food Knowledge Supabase Operations](SUPABASE_FOOD_KNOWLEDGE.md) for schema, RLS, migration, rollback, and failure handling.

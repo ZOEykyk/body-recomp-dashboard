@@ -126,9 +126,12 @@ def main() -> int:
     target = None
     if args.apply:
         url = os.environ.get("SUPABASE_URL", "").strip()
-        service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        service_key = (
+            os.environ.get("SUPABASE_SECRET_KEY", "").strip()
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        )
         if not url or not service_key:
-            print("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for --apply.", file=sys.stderr)
+            print("SUPABASE_URL and a Supabase secret/service-role key are required for --apply.", file=sys.stderr)
             return 2
         target = SupabaseFoodMasterRepository(SupabaseRestClient(url, service_key))
         target.health_check()

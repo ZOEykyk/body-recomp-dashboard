@@ -22,7 +22,7 @@
 - PR9 Personal Food Master v1
 - PR10 Nutrition Intelligence Engine v1
 - PR11 Food Knowledge Foundation
-- PR12 Food Knowledge Supabase Migration
+- PR12 Food Knowledge Supabase Migration (implementation complete; hosted acceptance pending)
 - PR8 Body Score AI
 - PR9 Coach AI
 - Future Lifestyle Intelligence
