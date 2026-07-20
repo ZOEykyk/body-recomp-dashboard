@@ -13,6 +13,7 @@ import streamlit.components.v1 as components
 
 from bodyos_standard import SCORE_COMPONENTS, SCORE_COMPONENT_MAXIMA
 from data_integrity import format_optional_number, format_weight_kg, valid_weight_series
+from nutrition_intelligence import analyze_nutrition
 from workout_intelligence import analyze_workout
 
 X_AXIS_LABEL_ANGLE = -40
@@ -299,52 +300,59 @@ def score_component_styles() -> str:
         box-sizing: border-box;
         min-width: 0;
       }
-      .bodyos-component-grid {
+      .bodyos-component-section .bodyos-component-grid {
         display: grid;
         gap: 0.9rem;
         width: 100%;
         max-width: 100%;
         overflow-x: hidden;
       }
-      .bodyos-priority-grid {
+      .bodyos-component-section .bodyos-priority-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         margin: 0.25rem 0 1.25rem;
       }
-      .bodyos-card-grid {
+      .bodyos-component-section .bodyos-card-grid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
         margin-top: 0.5rem;
       }
-      .bodyos-component-card {
+      .bodyos-component-section .bodyos-component-card {
         border: 1px solid rgba(49, 51, 63, 0.18);
         border-radius: 8px;
         padding: 0.85rem 0.95rem;
         background: #fff;
+        color: #31313f;
+        opacity: 1;
+        filter: none;
+        backdrop-filter: none;
+        mix-blend-mode: normal;
         overflow-wrap: anywhere;
         word-break: normal;
       }
-      .bodyos-component-label {
+      .bodyos-component-section .bodyos-component-label {
+        color: #31313f;
         font-weight: 700;
         line-height: 1.35;
         margin-bottom: 0.55rem;
       }
-      .bodyos-component-score {
+      .bodyos-component-section .bodyos-component-score {
         color: rgba(49, 51, 63, 0.82);
         font-size: 0.98rem;
         line-height: 1.3;
         margin-bottom: 0.45rem;
       }
-      .bodyos-component-rate {
+      .bodyos-component-section .bodyos-component-rate {
+        color: #31313f;
         font-size: 2rem;
         font-weight: 750;
         line-height: 1.05;
         margin-bottom: 0.35rem;
       }
-      .bodyos-component-meta {
+      .bodyos-component-section .bodyos-component-meta {
         color: rgba(49, 51, 63, 0.68);
         font-size: 0.9rem;
         line-height: 1.45;
       }
-      .bodyos-component-trend {
+      .bodyos-component-section .bodyos-component-trend {
         display: inline-block;
         max-width: 100%;
         border-radius: 999px;
@@ -354,20 +362,20 @@ def score_component_styles() -> str:
         line-height: 1.35;
         overflow-wrap: anywhere;
       }
-      .trend-up {
+      .bodyos-component-section .trend-up {
         background: rgba(38, 166, 91, 0.12);
         color: #137333;
       }
-      .trend-down {
+      .bodyos-component-section .trend-down {
         background: rgba(214, 39, 40, 0.11);
         color: #9f1d1d;
       }
-      .trend-stable,
-      .trend-insufficient {
+      .bodyos-component-section .trend-stable,
+      .bodyos-component-section .trend-insufficient {
         background: rgba(49, 51, 63, 0.08);
         color: rgba(49, 51, 63, 0.78);
       }
-      .bodyos-progress-track {
+      .bodyos-component-section .bodyos-progress-track {
         height: 0.48rem;
         width: 100%;
         border-radius: 999px;
@@ -375,28 +383,64 @@ def score_component_styles() -> str:
         overflow: hidden;
         margin-top: 0.75rem;
       }
-      .bodyos-progress-fill {
+      .bodyos-component-section .bodyos-progress-fill {
         height: 100%;
         border-radius: inherit;
         background: #1f77b4;
       }
       @media (max-width: 900px) {
-        .bodyos-priority-grid,
-        .bodyos-card-grid {
+        .bodyos-component-section .bodyos-priority-grid,
+        .bodyos-component-section .bodyos-card-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
       @media (max-width: 520px) {
-        .bodyos-priority-grid,
-        .bodyos-card-grid {
+        .bodyos-component-section .bodyos-priority-grid,
+        .bodyos-component-section .bodyos-card-grid {
           grid-template-columns: minmax(0, 1fr);
         }
-        .bodyos-component-card {
+        .bodyos-component-section .bodyos-component-card {
           padding: 0.8rem 0.85rem;
         }
-        .bodyos-component-rate {
+        .bodyos-component-section .bodyos-component-rate {
           font-size: 1.85rem;
         }
+      }
+    </style>
+    """
+    ).strip()
+
+
+def body_score_card_styles() -> str:
+    return textwrap.dedent(
+        """
+    <style>
+      .bodyos-body-score-summary .bodyos-body-score-card,
+      .bodyos-body-score-summary .bodyos-body-score-title,
+      .bodyos-body-score-summary .bodyos-body-score-value,
+      .bodyos-body-score-summary .bodyos-body-score-subtitle {
+        opacity: 1 !important;
+        filter: none !important;
+        mix-blend-mode: normal !important;
+        background-image: none !important;
+        background-clip: border-box !important;
+        -webkit-background-clip: border-box !important;
+      }
+      .bodyos-body-score-summary .bodyos-body-score-card,
+      .bodyos-body-score-summary .bodyos-body-score-title,
+      .bodyos-body-score-summary .bodyos-body-score-value {
+        color: #31313f !important;
+        -webkit-text-fill-color: #31313f !important;
+      }
+      .bodyos-body-score-summary .bodyos-body-score-subtitle {
+        color: rgba(49, 51, 63, 0.68) !important;
+        -webkit-text-fill-color: rgba(49, 51, 63, 0.68) !important;
+        opacity: 1 !important;
+        filter: none !important;
+        mix-blend-mode: normal !important;
+        background-image: none !important;
+        background-clip: border-box !important;
+        -webkit-background-clip: border-box !important;
       }
     </style>
     """
@@ -608,6 +652,29 @@ def dashboard_metric_cards(cards: list[dict[str, str]]) -> str:
     return f'<div class="bodyos-component-grid bodyos-card-grid">{"".join(card_markup)}</div>'
 
 
+def body_score_metric_cards(cards: list[dict[str, str]]) -> str:
+    card_markup: list[str] = []
+    for card in cards:
+        caption = card.get("caption", "")
+        caption_markup = (
+            f'<div class="bodyos-component-meta bodyos-body-score-subtitle">{html.escape(caption)}</div>'
+            if caption
+            else ""
+        )
+        card_markup.append(
+            textwrap.dedent(
+                f"""
+            <div class="bodyos-component-card bodyos-body-score-card">
+              <div class="bodyos-component-label bodyos-body-score-title">{html.escape(card["label"])}</div>
+              <div class="bodyos-component-rate bodyos-body-score-value">{html.escape(card["value"])}</div>
+              {caption_markup}
+            </div>
+            """
+            ).strip()
+        )
+    return f'<div class="bodyos-component-grid bodyos-card-grid">{"".join(card_markup)}</div>'
+
+
 def render_html_section(markup: str, fallback_height: int = 700) -> None:
     if hasattr(st, "html"):
         st.html(markup)
@@ -640,8 +707,9 @@ def render_body_score_summary(latest: pd.Series, chart_df: pd.DataFrame) -> None
     markup = textwrap.dedent(
         f"""
         {score_component_styles()}
-        <div class="bodyos-component-section">
-          {dashboard_metric_cards([
+        {body_score_card_styles()}
+        <div class="bodyos-component-section bodyos-body-score-summary">
+          {body_score_metric_cards([
               {"label": "最新Body Score", "value": f"{int(latest['Body Score'])}点", "caption": score_label(latest["Body Score"])},
               {"label": "7日平均Body Score", "value": f"{chart_df['7日平均Body Score'].iloc[-1]:.1f}点"},
               {"label": "最新モード", "value": str(latest["モード"])},
@@ -678,6 +746,81 @@ def render_todays_metrics(latest: pd.Series, chart_df: pd.DataFrame, this_week: 
         """
     ).strip()
     render_html_section(markup, fallback_height=700)
+
+
+def render_nutrition_intelligence(latest: pd.Series, data: pd.DataFrame) -> None:
+    """Render a compact, mobile-safe projection of the pure nutrition result."""
+    st.subheader("Nutrition Intelligence")
+    history = data.iloc[:-1].to_dict("records") if len(data) > 1 else []
+    profile = {"body_weight": latest.get("体重")}
+    insight = analyze_nutrition(latest.to_dict(), history=history, profile=profile)
+    cards = [
+        ("Nutrition Score", f"{insight['score']}点", f"利用可能 {insight['available_points']}点分で正規化"),
+        ("信頼度", insight["confidence"]["level"], f"{insight['confidence']['score']:.0%}"),
+        ("記録状況", insight["status"], f"目標進捗 {insight['expected_progress_ratio']:.0%}"),
+    ]
+    card_markup = "".join(
+        f'<div class="bodyos-ni-card"><div class="bodyos-ni-label">{html.escape(label)}</div>'
+        f'<div class="bodyos-ni-value">{html.escape(value)}</div>'
+        f'<div class="bodyos-ni-meta">{html.escape(caption)}</div></div>'
+        for label, value, caption in cards
+    )
+    markup = textwrap.dedent(
+        f"""
+        <style>
+          .bodyos-nutrition-intelligence,
+          .bodyos-nutrition-intelligence * {{ box-sizing: border-box; min-width: 0; }}
+          .bodyos-nutrition-intelligence .bodyos-ni-grid {{
+            display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.9rem; width: 100%;
+          }}
+          .bodyos-nutrition-intelligence .bodyos-ni-card {{
+            border: 1px solid rgba(49, 51, 63, 0.18); border-radius: 8px; padding: 0.85rem 0.95rem;
+            background: #fff; color: #31313f; opacity: 1; filter: none; backdrop-filter: none;
+            mix-blend-mode: normal; overflow-wrap: anywhere;
+          }}
+          .bodyos-nutrition-intelligence .bodyos-ni-label {{ color: #31313f; font-weight: 700; line-height: 1.35; margin-bottom: 0.55rem; }}
+          .bodyos-nutrition-intelligence .bodyos-ni-value {{ color: #31313f; font-size: 2rem; font-weight: 750; line-height: 1.05; margin-bottom: 0.35rem; }}
+          .bodyos-nutrition-intelligence .bodyos-ni-meta {{ color: rgba(49, 51, 63, 0.68); font-size: 0.9rem; line-height: 1.45; }}
+          @media (max-width: 900px) {{ .bodyos-nutrition-intelligence .bodyos-ni-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
+          @media (max-width: 520px) {{
+            .bodyos-nutrition-intelligence .bodyos-ni-grid {{ grid-template-columns: minmax(0, 1fr); }}
+            .bodyos-nutrition-intelligence .bodyos-ni-card {{ padding: 0.8rem 0.85rem; }}
+            .bodyos-nutrition-intelligence .bodyos-ni-value {{ font-size: 1.85rem; }}
+          }}
+        </style>
+        <div class="bodyos-nutrition-intelligence"><div class="bodyos-ni-grid">{card_markup}</div></div>
+        """
+    ).strip()
+    render_html_section(markup, fallback_height=420)
+    st.write(insight["summary"])
+    if insight["strengths"]:
+        st.markdown("**良い点**")
+        for strength in insight["strengths"][:2]:
+            st.write(f"- {strength['title']}: {strength['detail']}")
+    if insight["priorities"]:
+        st.markdown("**改善優先項目**")
+        for priority in insight["priorities"][:3]:
+            st.write(f"- [{priority['severity']}] {priority['title']}: {priority['detail']}")
+    if insight["actions"]:
+        st.markdown("**次のアクション**")
+        for action in insight["actions"]:
+            st.write(f"{action['priority']}. {action['title']} - {action['detail']}")
+    with st.expander("栄養評価の詳細"):
+        breakdown = pd.DataFrame(
+            [
+                {
+                    "項目": name,
+                    "状態": item["status"],
+                    "実績": item["actual"] if item["actual"] is not None else "—",
+                    "目標": str(item["target"]),
+                    "点": f"{item['points']} / {item['max_points']}" if item["available"] else "—",
+                }
+                for name, item in insight["score_breakdown"].items()
+            ]
+        )
+        st.dataframe(breakdown, use_container_width=True, hide_index=True)
+        st.caption("データ品質: " + (" / ".join(insight["confidence"]["reasons"]) or "十分な記録範囲"))
+        st.json(insight["comparisons"])
 
 
 def render_core_trend_charts(chart_df: pd.DataFrame) -> None:
@@ -768,6 +911,7 @@ def render_dashboard(
     st.header("ダッシュボード")
     render_body_score_summary(latest, chart_df)
     render_todays_metrics(latest, chart_df, this_week)
+    render_nutrition_intelligence(latest, data)
     render_workout_intelligence(latest, data)
     render_core_trend_charts(chart_df)
     render_history_table(chart_df)

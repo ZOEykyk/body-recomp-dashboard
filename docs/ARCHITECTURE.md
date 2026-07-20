@@ -47,6 +47,9 @@ Body Score / Coach feedback
 - `food_master_models.py`: Personal Food Master record and encounter contracts.
 - `food_master_repository.py`: Repository interface plus the local JSON/JSONL adapter for future database migration.
 - `personal_food_master.py`: Personal identity resolution, candidate creation, promotion, usage tracking, and encounter logging.
+- `nutrition_targets.py`: Centralized, profile-safe target defaults and formulas.
+- `nutrition_intelligence.py`: Pure deterministic Nutrition Intelligence aggregation, scoring, comparisons, and rule trace.
+- `nutrition_rules.py`: Centralized Japanese coaching templates, heuristics, and recommendation precedence.
 - `bodyos_standard.py`: Reusable BodyOS Standard v1.0 rule engine for daily scoring and score component maximum-score metadata.
 - `workout_intelligence.py`: Reusable Workout Intelligence v1 parser and training feedback engine.
 - `README.md`: User-facing setup and feature documentation.
@@ -94,6 +97,8 @@ The parser understands text structure: delimiters, composite meals, brand contex
 PR9 adds a Personal Food Master before seed lookup. It separates append-only food encounters from reusable food records, aliases, source candidates, and usage statistics. Unknown or estimated encounters remain candidates; only reviewed candidates or foods supported by a sufficiently authoritative source become active. The local adapter stores new knowledge independently from `records.csv`, behind a repository interface intended for a future database and multi-user implementation. It is a local MVP: Streamlit Cloud restart or redeploy can discard its JSON/JSONL files, and the existing GitHub persistence currently applies only to `records.csv`.
 
 Personal Food Master encounter writes are idempotent. A stable fingerprint includes owner, date, meal type, normalized fragment, save/import identity, and a normalized meal-content hash. It prevents retries or repeated imports from incrementing usage more than once, while changed content or quantity on the same date becomes a new encounter. The compact Streamlit management section is isolated from the dashboard renderer and works directly through `FoodMasterRepository` for active/candidate review, alias management, linking, and archive actions.
+
+Nutrition Intelligence is a separate read-time layer after nutrition resolution. `dashboard.py` calls the pure `analyze_nutrition(record, history, profile, now)` interface and only renders its result. The engine has no Streamlit, file, network, or LLM dependency; it never alters records, Body Score, Personal Food Master, or source-priority decisions. A future LLM wording layer may consume its structured result and rule trace, but must not replace the deterministic calculation.
 
 ## Dashboard Layer
 

@@ -108,6 +108,19 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - Candidate deduplication uses the exact personal identity tuple: brand, canonical name, variant, and size. Different variants or sizes must remain separate candidates.
 - Encounter records are append-only and carry a stable idempotency key based on owner, record date, meal type, normalized fragment, save/import operation identity, and a normalized meal-content hash. Replaying identical content must not append a line, create a food, or increment use count; changed content or quantity creates a new encounter.
 - The current JSON/JSONL Food Master adapter is a local MVP. It has no durable hosted backend yet, so Streamlit Cloud restarts or redeploys can discard Food Master data. Existing GitHub persistence applies to `records.csv` only.
+
+## Nutrition Intelligence v1
+
+- Nutrition Intelligence is computed at render time and never adds columns to `records.csv`, rewrites historical records, or changes Body Score.
+- The public pure result includes engine/ruleset/target versions, day status, expected progress, normalized Nutrition Score, confidence, totals, targets, component breakdown, strengths, priorities, actions, comparisons, data quality, and rule trace.
+- Score allocation is calories 20, protein 20, fat 15, carbohydrates 10, fiber 10, salt 10, vegetables 10, and hydration 5. Unavailable metrics are excluded from available points, then earned points are normalized to 100; missing data is never silently scored as zero.
+- Day status is `morning_only`, `partial_day`, `complete_day`, or `unknown_completion`. Morning uses 25% and partial day uses 60% target progress by default; complete days use 100%. Historical dated records with dinner are treated as complete, while current incomplete records retain cautious language.
+- Target defaults are 2,200 kcal; protein 1.6g/kg when a positive body weight is supplied, otherwise 120g; fat 25-35% energy; carbohydrates 35-55%; fiber 21g; salt <=7.5g; vegetables three servings; and hydration 2,000ml only when a real hydration input exists.
+- Confidence is separate from score and uses resolved/estimated item ratio, source quality, macro coverage, unresolved count, and completion state. Explicit or official values support stronger wording; fallback-heavy or incomplete data is presented as a reference value.
+- Existing alcohol fields are only treated as a low-priority nutrition context. BodyOS does not infer alcohol calories, medical effects, or classify ordinary work drinks as alcohol; ambiguous alcohol detail is disclosed as a confidence limitation.
+- Recommendation precedence is data reliability, calorie excess/deficit, protein deficiency, fat excess, vegetables/fiber, salt, then optimization. Actions are deterministic, non-contradictory, and capped at three.
+- Previous-day comparison reports values and direction without calling every increase an improvement. Seven-day averages use only valid complete historical days, need two days to display, and use four days before strong trend wording.
+- Rule traces keep the inputs, component result, and points for every score adjustment. This supports validation and a future optional LLM wording layer without giving that layer authority over nutrition data.
 - If lookup is unresolved, ambiguous, variant-mismatched, or size-mismatched, it must not invent a trusted value; the existing dictionary/fallback path remains available.
 - Dictionary-based calorie estimates should feel realistic, not perfectly precise.
 - If only part of a meal is detected, unknown items should not silently become 0 kcal.
