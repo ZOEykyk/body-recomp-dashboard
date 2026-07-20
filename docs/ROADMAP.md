@@ -22,13 +22,13 @@
 - PR9 Personal Food Master v1
 - PR10 Nutrition Intelligence Engine v1
 - PR11 Food Knowledge Foundation
+- PR12 Food Knowledge Supabase Migration (implementation complete; hosted acceptance pending)
 - PR8 Body Score AI
 - PR9 Coach AI
 - Future Lifestyle Intelligence
 
 ## Milestone M3 Platform
 
-- PR12 Supabase Migration
 - PR13 Smart Food Capture
 - API separation
 - Database storage

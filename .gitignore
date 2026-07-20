@@ -1,3 +1,4 @@
 personal_food_master.json
 food_encounters.jsonl
 validation_artifacts/
+.streamlit/secrets.toml

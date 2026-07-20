@@ -109,8 +109,12 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - Food Master records use `owner_user_id` as the contract owner field (with legacy `user_id` retained for compatibility), and include scope, category, default quantity/unit, notes, schema version, creator, updater, aliases, review status, and usage statistics. Review statuses are `pending_review`, `reviewed`, or `rejected`.
 - Candidate deduplication uses the exact personal identity tuple: brand, canonical name, variant, and size. Different variants or sizes must remain separate candidates.
 - Encounter records are append-only and carry a stable idempotency key based on owner, record date, meal type, normalized fragment, save/import operation identity, and a normalized meal-content hash. Replaying identical content must not append a line, create a food, or increment use count; changed content or quantity creates a new encounter.
-- The current JSON/JSONL Food Master adapter is a local MVP. It has no durable hosted backend yet, so Streamlit Cloud restarts or redeploys can discard Food Master data. Existing GitHub persistence applies to `records.csv` only.
-- Repository implementations expose copied personal-food and encounter snapshots. Storage paths, serialization, credentials, and queries must not leak into Resolver or intelligence engines.
+- Food Knowledge repositories may use local JSON/JSONL or normalized Supabase tables. Local JSON remains a durability-non-guaranteed MVP; Supabase is the hosted durable adapter. Existing GitHub persistence applies to `records.csv` only.
+- `(owner_user_id, idempotency_key)` is unique in durable storage. Encounter insertion and usage increment occur in one RPC transaction, so retrying identical content changes neither count.
+- Repository implementations expose copied personal-food and encounter snapshots plus filtered query APIs. Storage paths, serialization, credentials, and queries must not leak into Resolver or intelligence engines.
+- Personal Food ownership is explicit on every repository operation. Current `local-default` ownership is a single-user bridge; future Supabase Auth maps it to `auth.uid()` and RLS prevents cross-owner access.
+- Supabase nutrition sources are keyed by `(food_id, source_id)`, not `source_id` alone, because domain source IDs such as `explicit-user-label` may legitimately recur on different foods. Nutrition facts use the same food/source pair.
+- Food Knowledge failover never changes `records.csv`. JSON fallback may create unsynced Food Knowledge and must be reconciled explicitly after recovery.
 - Resolver counts and source provenance are runtime/encounter metadata. They are not new `records.csv` columns and do not rewrite historical calories.
 
 ## Nutrition Intelligence v1

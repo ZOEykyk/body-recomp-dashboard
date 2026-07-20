@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import datetime as dt
 import html
 from typing import Any
 
@@ -33,6 +34,16 @@ def _encounter_confidence(encounter: dict[str, Any]) -> str:
     return "high" if source_type else "low"
 
 
+def _display_timestamp(value: Any) -> str:
+    if not value:
+        return "—"
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed.astimezone().strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return str(value)
+
+
 def food_knowledge_metrics(repository: FoodMasterRepository, user_id: str) -> dict[str, Any]:
     """Build a UI-neutral Food Knowledge projection from repository contracts."""
     snapshot = repository.get_knowledge_snapshot(user_id, include_encounters=True)
@@ -50,16 +61,9 @@ def food_knowledge_metrics(repository: FoodMasterRepository, user_id: str) -> di
     )
     confidence_values = [CONFIDENCE_SCORES[_encounter_confidence(encounter)] for encounter in encounters]
     confidence = sum(confidence_values) / len(confidence_values) if confidence_values else None
-    usage_ranking = sorted(
-        foods,
-        key=lambda food: (
-            int(food.get("use_count", food.get("usage_count", 0)) or 0),
-            str(food.get("last_used_at") or ""),
-        ),
-        reverse=True,
-    )[:5]
+    usage_ranking = repository.list_top_used_foods(user_id, limit=5)
     recently_added = sorted(foods, key=lambda food: str(food.get("created_at") or ""), reverse=True)[:3]
-    recently_updated = sorted(foods, key=lambda food: str(food.get("updated_at") or ""), reverse=True)[:3]
+    recently_updated = repository.list_recent_foods(user_id, limit=3)
     return {
         "registered_count": len(foods) + len(FOOD_LOOKUP_CATALOG),
         "personal_count": len(active),
@@ -70,6 +74,7 @@ def food_knowledge_metrics(repository: FoodMasterRepository, user_id: str) -> di
         "usage_ranking": deepcopy(usage_ranking),
         "recently_added": deepcopy(recently_added),
         "recently_updated": deepcopy(recently_updated),
+        "repository_status": repository.get_repository_status(),
     }
 
 
@@ -92,7 +97,21 @@ def _list_markup(items: list[dict[str, Any]], *, usage: bool = False) -> str:
 
 
 def render_food_knowledge_dashboard(repository: FoodMasterRepository, user_id: str) -> None:
-    metrics = food_knowledge_metrics(repository, user_id)
+    try:
+        metrics = food_knowledge_metrics(repository, user_id)
+    except Exception:
+        metrics = {
+            "registered_count": len(FOOD_LOOKUP_CATALOG),
+            "personal_count": 0,
+            "candidate_count": 0,
+            "official_count": len(FOOD_LOOKUP_CATALOG),
+            "fallback_count": 0,
+            "confidence": None,
+            "usage_ranking": [],
+            "recently_added": [],
+            "recently_updated": [],
+            "repository_status": repository.get_repository_status(),
+        }
     confidence = "—" if metrics["confidence"] is None else f"{metrics['confidence']:.0%}"
     cards = [
         ("登録食品", str(metrics["registered_count"]), "Official + Personal"),
@@ -109,6 +128,24 @@ def render_food_knowledge_dashboard(repository: FoodMasterRepository, user_id: s
         "</div>"
         for label, value, meta in cards
     )
+    storage = metrics["repository_status"]
+    storage_cards = [
+        ("Storage", str(storage.get("storage") or "—"), "Active backend"),
+        ("Connection", str(storage.get("connection") or "—"), "Repository health"),
+        ("Repository", str(storage.get("repository") or "—"), "Adapter"),
+        ("Last Write", _display_timestamp(storage.get("last_successful_write")), "Food Knowledge"),
+        ("Last Read", _display_timestamp(storage.get("last_successful_read")), "Food Knowledge"),
+        ("Migration", str(storage.get("migration_status") or "—"), "Schema"),
+        ("未同期", str(storage.get("unsynced_count") or 0), "Fallback queue"),
+    ]
+    storage_markup = "".join(
+        '<div class="bodyos-fk-card bodyos-fk-storage-card">'
+        f'<div class="bodyos-fk-label">{html.escape(label)}</div>'
+        f'<div class="bodyos-fk-storage-value">{html.escape(value)}</div>'
+        f'<div class="bodyos-fk-meta">{html.escape(meta)}</div>'
+        "</div>"
+        for label, value, meta in storage_cards
+    )
     st.header("Food Knowledge")
     st.caption("食品知識の蓄積状況。すべての解決経路は共通Food ResolverとSource Policyを利用します。")
     st.markdown(
@@ -117,9 +154,11 @@ def render_food_knowledge_dashboard(repository: FoodMasterRepository, user_id: s
           .bodyos-food-knowledge, .bodyos-food-knowledge * {{ box-sizing: border-box; min-width: 0; }}
           .bodyos-food-knowledge {{ color: #31313f; width: 100%; }}
           .bodyos-food-knowledge .bodyos-fk-grid {{ display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.75rem; }}
+          .bodyos-food-knowledge .bodyos-fk-storage-grid {{ grid-template-columns: repeat(4, minmax(0, 1fr)); }}
           .bodyos-food-knowledge .bodyos-fk-card {{ border: 1px solid rgba(49,51,63,.16); border-radius: 8px; padding: .8rem .9rem; background: #fff; }}
           .bodyos-food-knowledge .bodyos-fk-label {{ color: #31313f; font-size: .9rem; font-weight: 700; line-height: 1.35; }}
           .bodyos-food-knowledge .bodyos-fk-value {{ color: #31313f; font-size: 1.8rem; font-weight: 750; line-height: 1.15; margin: .35rem 0 .25rem; }}
+          .bodyos-food-knowledge .bodyos-fk-storage-value {{ color: #31313f; font-size: 1rem; font-weight: 750; line-height: 1.35; margin: .35rem 0 .25rem; overflow-wrap: anywhere; }}
           .bodyos-food-knowledge .bodyos-fk-meta, .bodyos-food-knowledge .bodyos-fk-empty {{ color: rgba(49,51,63,.68); font-size: .82rem; line-height: 1.4; }}
           .bodyos-food-knowledge .bodyos-fk-detail-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .8rem; }}
           .bodyos-food-knowledge .bodyos-fk-panel {{ border-top: 1px solid rgba(49,51,63,.16); padding-top: .65rem; }}
@@ -137,6 +176,9 @@ def render_food_knowledge_dashboard(repository: FoodMasterRepository, user_id: s
           }}
         </style>
         <section class="bodyos-food-knowledge">
+          <div class="bodyos-fk-heading">保存基盤</div>
+          <div class="bodyos-fk-grid bodyos-fk-storage-grid">{storage_markup}</div>
+          <div class="bodyos-fk-heading" style="margin-top: 1rem;">Knowledge Metrics</div>
           <div class="bodyos-fk-grid">{card_markup}</div>
           <div class="bodyos-fk-detail-grid">
             <div class="bodyos-fk-panel"><div class="bodyos-fk-heading">利用回数ランキング</div>{_list_markup(metrics['usage_ranking'], usage=True)}</div>
@@ -147,6 +189,8 @@ def render_food_knowledge_dashboard(repository: FoodMasterRepository, user_id: s
         """,
         unsafe_allow_html=True,
     )
+    if storage.get("warning"):
+        st.warning(str(storage["warning"]))
 
 
 __all__ = ["food_knowledge_metrics", "render_food_knowledge_dashboard"]

@@ -44,14 +44,20 @@ def _food_summary(food: dict) -> None:
 
 def render_food_master_management(repository: FoodMasterRepository, user_id: str) -> None:
     """Compact management UI that never reads or writes records.csv."""
-    foods = repository.list_foods(user_id)
+    try:
+        foods = repository.list_foods(user_id)
+    except Exception:
+        foods = []
     active_foods = [food for food in foods if food.get("status") == "active"]
-    candidates = repository.list_candidates(user_id)
+    try:
+        candidates = repository.list_candidates(user_id)
+    except Exception:
+        candidates = []
+    status = repository.get_repository_status()
 
     st.header("Personal Food Master")
-    st.info(
-        "保存方式: local MVPです。Personal Food MasterのJSON/JSONLはStreamlit Cloudの再起動・再デプロイで消失する可能性があります。"
-    )
+    if status.get("storage") == "Local JSON":
+        st.info("保存方式: local MVP / durability非保証。再起動・再デプロイで消失する可能性があります。")
     with st.expander(f"食品管理: active {len(active_foods)}件 / candidate {len(candidates)}件", expanded=False):
         if not foods:
             st.caption("新しい記録を保存すると、食品遭遇がここに蓄積されます。")

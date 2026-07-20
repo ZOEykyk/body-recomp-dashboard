@@ -46,7 +46,9 @@ result = resolve_food_text(text, meal_type, knowledge=knowledge)
 
 `FoodMasterRepository` owns personal foods and encounters. The interface exposes food listing, lookup, upsert, archive, candidate listing, idempotent encounter append/lookup, encounter listing, and copied knowledge snapshots.
 
-`JsonFoodMasterRepository` remains the PR11 adapter. Its local JSON/JSONL files are not durable on Streamlit Cloud. Resolver and dashboard code do not depend on JSON paths or serialization, so a future repository can replace it without changing nutrition rules.
+`JsonFoodMasterRepository` remains available for local use and rollback. `SupabaseFoodMasterRepository` maps normalized cloud tables back to the same domain model. Resolver and dashboard code do not depend on JSON paths, SQL, credentials, or serialization, so repository selection does not change nutrition rules.
+
+Encounter persistence uses the repository unit `save_encounter_idempotently()`. Supabase implements it with `save_food_encounter_v1`, which enforces owner/idempotency uniqueness and increments usage only for a newly inserted Encounter. The JSON adapter keeps the same result contract for regression compatibility.
 
 ## Resolver Result
 
@@ -58,17 +60,13 @@ This result is projected into the existing calorie-estimation contract. No resol
 
 The Food Knowledge dashboard is a read-only projection of repository and official-catalog state. It shows registered, Personal, Official, and Fallback counts, encounter confidence, usage ranking, and recent additions/updates. The existing Personal Food Master management expander remains separate.
 
-After JSON import, BodyOS shows Food Master, Official, Generic, and Fallback resolution counts. Explicit nutrition is shown when present. These values are operational metrics and are not persisted in the daily CSV schema.
+After JSON import, BodyOS shows Food Master, Official, Generic, and Fallback resolution counts plus saved, duplicate, and failed Encounter counts. Explicit nutrition is shown when present. These values are operational metrics and are not persisted in the daily CSV schema.
 
-## PR12 Handoff: Supabase Migration
+## PR12: Supabase Migration
 
-- Implement a Supabase adapter for `FoodMasterRepository`; do not add Supabase calls to the resolver.
-- Map `owner_user_id` to authenticated ownership and enforce row-level security.
-- Normalize foods, aliases, nutrition sources, and encounters while preserving schema versions and idempotency keys.
-- Add a transaction or unit-of-work operation so one save/import persists related foods and encounters atomically.
-- Define migration, rollback, reconciliation, retry, and local-to-cloud import procedures.
-- Add indexes for normalized identity, aliases, record date, idempotency key, status, use count, and update time.
-- Replace local durability warnings only after hosted persistence and recovery are verified.
+PR12 adds the Supabase adapter, normalized schema, RLS, indexes, RPC unit-of-work, repository modes, connection status UI, and idempotent JSON/JSONL migration. Operational setup and rollback are documented in [Food Knowledge Supabase Operations](SUPABASE_FOOD_KNOWLEDGE.md).
+
+The privileged secret/service-role credential is server-only in the current single-user Streamlit deployment. Future authenticated calls should use a user JWT with `owner_user_id = auth.uid()::text`. Hosted persistence and restart recovery must still be verified against the configured Supabase project before removing retained JSON backups.
 
 ## PR13 Handoff: Smart Food Capture
 
@@ -83,9 +81,11 @@ After JSON import, BodyOS shows Food Master, Official, Generic, and Fallback res
 
 - The generic catalog adapts legacy calorie-only dictionaries, so most PFC values remain unknown.
 - Official catalog coverage is intentionally small and updated manually.
-- JSON storage rewrites the full personal master file and has no cross-file transaction.
+- JSON storage rewrites the full personal master file and can only provide process-local cross-file coordination.
 - Identity matching is deterministic; spelling variants outside current aliases remain reviewable.
-- Food Knowledge metrics scan local encounters at render time; a database backend should aggregate in queries.
+- Food Knowledge aggregate counts still read Encounter rows; a future database view/RPC should aggregate large histories server-side.
+- JSON fallback records an unsynced count but does not automatically reconcile back to Supabase.
+- Current service-role operation relies on server-side owner scoping until Supabase Auth is introduced.
 - Historical CSV calories are not backfilled with provenance until an explicit migration workflow exists.
 
 ## UI Validation
