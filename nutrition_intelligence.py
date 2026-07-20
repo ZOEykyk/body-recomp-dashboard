@@ -5,8 +5,7 @@ from copy import deepcopy
 import datetime as dt
 from typing import Any
 
-from food_lookup import calculate_lookup_total, lookup_food
-from food_parser import parse_food_text
+from food_resolver import resolve_food_text
 from nutrition_intelligence_models import (
     METRIC_FIELDS,
     NUTRITION_INTELLIGENCE_VERSION,
@@ -84,16 +83,15 @@ def determine_day_status(record: dict[str, Any], now: dt.datetime | None = None)
     return "partial_day", 0.60
 
 
-def _source_type(result: dict[str, Any]) -> str:
-    selected = (result.get("source_selection") or {}).get("selected") or {}
-    return str((selected.get("source") or {}).get("source_type") or "fallback_estimate")
-
-
-def _aggregate_from_meals(record: dict[str, Any]) -> dict[str, Any]:
+def _aggregate_from_meals(
+    record: dict[str, Any],
+    food_knowledge: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Aggregate only known nutrition fields; unknown macro values remain None."""
     direct = numeric_nutrition_from_record(record)
     totals: dict[str, float | None] = {field: direct.get(field) for field in METRIC_FIELDS}
     sources: dict[str, int] = {}
+    origins: dict[str, int] = {}
     known_items = estimated_items = unresolved_items = 0
     meal_totals: dict[str, dict[str, Any]] = {}
     meals = meal_texts(record)
@@ -105,48 +103,52 @@ def _aggregate_from_meals(record: dict[str, Any]) -> dict[str, Any]:
         meal_totals[meal_type] = {"calories_kcal": as_positive_number(record.get(MEAL_CALORIE_COLUMNS.get(meal_type, ""))), "items": 0}
         if not text or _is_no_meal(text):
             continue
-        parsed = parse_food_text(text, meal_type)
-        explicit = parsed.get("explicit_nutrition") or {}
-        if any(explicit.get(field) is not None for field in ("calories_kcal", "protein_g", "fat_g", "carbs_g")):
+        resolution = resolve_food_text(text, meal_type, knowledge=food_knowledge)
+        resolved_items = resolution.get("items") or []
+        meal_totals[meal_type]["items"] = len(resolved_items)
+        if resolution.get("meal_explicit"):
             any_item = True
-            known_items += 1
-            sources["explicit_user_label"] = sources.get("explicit_user_label", 0) + 1
+            known_items += max(len(resolved_items), 1)
+            sources["explicit_user_label"] = sources.get("explicit_user_label", 0) + max(len(resolved_items), 1)
+            origins["explicit"] = origins.get("explicit", 0) + max(len(resolved_items), 1)
+            nutrition = resolution.get("total_nutrition") or {}
             for field in inferred:
-                value = as_positive_number(explicit.get(field))
+                value = as_positive_number(nutrition.get(field))
                 if value is None:
                     field_complete[field] = False
                 else:
                     inferred[field] += value
-            meal_totals[meal_type]["calories_kcal"] = as_positive_number(explicit.get("calories_kcal"))
+            meal_totals[meal_type]["calories_kcal"] = as_positive_number(nutrition.get("calories_kcal"))
             continue
-        for item in parsed.get("items") or []:
+
+        for resolved in resolved_items:
             any_item = True
-            meal_totals[meal_type]["items"] += 1
-            lookup = lookup_food(item)
-            if lookup.get("matched"):
-                calculated = calculate_lookup_total(lookup, item.get("quantity"), item.get("unit"))
-                nutrition = calculated.get("total_nutrition") or lookup.get("nutrition") or {}
-                if calculated.get("needs_review") or as_positive_number(nutrition.get("calories_kcal")) is None:
-                    unresolved_items += 1
-                    estimated_items += 1
-                    field_complete["calories_kcal"] = False
-                    continue
-                known_items += 1
-                source = _source_type(lookup)
-                sources[source] = sources.get(source, 0) + 1
-                for field in inferred:
-                    value = as_positive_number(nutrition.get(field))
-                    if value is None:
-                        field_complete[field] = False
-                    else:
-                        inferred[field] += value
+            selected = resolved.get("selected") or {}
+            origin = str(resolved.get("selected_origin") or "fallback")
+            source_type = str((selected.get("source") or {}).get("source_type") or "fallback_estimate")
+            origins[origin] = origins.get(origin, 0) + 1
+            sources[source_type] = sources.get(source_type, 0) + 1
+            nutrition = resolved.get("total_nutrition") or {}
+            if origin == "fallback" or as_positive_number(nutrition.get("calories_kcal")) is None:
+                unresolved_items += 1
+                estimated_items += 1
+                for field in field_complete:
+                    field_complete[field] = False
                 continue
-            unresolved_items += 1
-            estimated_items += 1
-            sources["fallback_estimate"] = sources.get("fallback_estimate", 0) + 1
-            field_complete["calories_kcal"] = False
-            for field in ("protein_g", "fat_g", "carbs_g", "fiber_g", "salt_g"):
-                field_complete[field] = False
+            known_items += 1
+            if origin == "generic":
+                estimated_items += 1
+                if resolved.get("item", {}).get("needs_review"):
+                    unresolved_items += 1
+            for field in inferred:
+                value = as_positive_number(nutrition.get(field))
+                if value is None:
+                    field_complete[field] = False
+                else:
+                    inferred[field] += value
+        resolved_calories = as_positive_number((resolution.get("total_nutrition") or {}).get("calories_kcal"))
+        if resolved_calories is not None:
+            meal_totals[meal_type]["calories_kcal"] = resolved_calories
 
     if totals["calories_kcal"] is None:
         meal_column_values = [as_positive_number(record.get(column)) for column in MEAL_CALORIE_COLUMNS.values()]
@@ -168,6 +170,7 @@ def _aggregate_from_meals(record: dict[str, Any]) -> dict[str, Any]:
         "estimated_item_count": estimated_items,
         "unresolved_item_count": unresolved_items,
         "source_type_distribution": sources,
+        "resolution_origin_distribution": origins,
         "vegetables": vegetables,
         "snacks": snacks,
         "has_meal_text": any(bool(text) for text in meals.values()),
@@ -350,12 +353,21 @@ def _seven_day(history_results: list[dict[str, Any]]) -> dict[str, Any]:
     return {"available": True, "valid_day_count": len(valid), "average_score": round(sum(item["score"] for item in valid) / len(valid), 1), "average_calories_kcal": average("calories_kcal"), "average_protein_g": average("protein_g"), "average_fat_g": average("fat_g"), "average_carbs_g": average("carbs_g"), "trend_confidence": "strong" if len(valid) >= 4 else "limited"}
 
 
-def analyze_nutrition(record: dict[str, Any], *, history: list[dict[str, Any]] | None = None, profile: dict[str, Any] | None = None, now: dt.datetime | None = None, _with_comparisons: bool = True) -> dict[str, Any]:
+def analyze_nutrition(
+    record: dict[str, Any],
+    *,
+    history: list[dict[str, Any]] | None = None,
+    profile: dict[str, Any] | None = None,
+    now: dt.datetime | None = None,
+    food_knowledge: dict[str, Any] | None = None,
+    _with_comparisons: bool = True,
+) -> dict[str, Any]:
     """Analyze one record without mutation, IO, Streamlit, network, or an LLM."""
     safe_record, safe_history, safe_profile = deepcopy(record or {}), deepcopy(history or []), deepcopy(profile or {})
+    safe_food_knowledge = deepcopy(food_knowledge) if isinstance(food_knowledge, dict) else None
     status, progress = determine_day_status(safe_record, now)
     targets = calculate_nutrition_targets(safe_profile)
-    aggregation = _aggregate_from_meals(safe_record)
+    aggregation = _aggregate_from_meals(safe_record, safe_food_knowledge)
     components, rule_trace = _score_components(aggregation, targets, status, progress)
     available_points = sum(component["max_points"] for component in components.values() if component["available"])
     earned_points = sum(component["points"] for component in components.values() if component["available"])
@@ -391,7 +403,7 @@ def analyze_nutrition(record: dict[str, Any], *, history: list[dict[str, Any]] |
         "priorities": priorities,
         "actions": actions,
         "comparisons": {"previous_day": {"available": False}, "seven_day": {"available": False}},
-        "data_quality": {"known_item_count": aggregation["known_item_count"], "estimated_item_count": aggregation["estimated_item_count"], "unresolved_item_count": aggregation["unresolved_item_count"], "source_type_distribution": aggregation["source_type_distribution"], "macro_coverage": confidence["macro_coverage"]},
+        "data_quality": {"known_item_count": aggregation["known_item_count"], "estimated_item_count": aggregation["estimated_item_count"], "unresolved_item_count": aggregation["unresolved_item_count"], "source_type_distribution": aggregation["source_type_distribution"], "resolution_origin_distribution": aggregation["resolution_origin_distribution"], "macro_coverage": confidence["macro_coverage"]},
         "vegetables": aggregation["vegetables"],
         "snacks": aggregation["snacks"],
         "alcohol": aggregation["alcohol"],
@@ -402,7 +414,17 @@ def analyze_nutrition(record: dict[str, Any], *, history: list[dict[str, Any]] |
         dated = [(item, _date(record_value(item, "date", "日付"))) for item in safe_history]
         prior = [item for item, date in dated if date and (current_date is None or date < current_date)]
         prior.sort(key=lambda item: _date(record_value(item, "date", "日付")) or dt.date.min)
-        prior_results = [analyze_nutrition(item, history=None, profile=safe_profile, now=now, _with_comparisons=False) for item in prior]
+        prior_results = [
+            analyze_nutrition(
+                item,
+                history=None,
+                profile=safe_profile,
+                now=now,
+                food_knowledge=safe_food_knowledge,
+                _with_comparisons=False,
+            )
+            for item in prior
+        ]
         result["comparisons"] = {"previous_day": _comparison(result, prior_results[-1] if prior_results else None), "seven_day": _seven_day(prior_results)}
     return result
 

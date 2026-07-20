@@ -24,6 +24,14 @@ SOURCE_PRIORITY = {
     "legacy_dictionary": 8,
     "fallback_estimate": 9,
 }
+FOOD_RESOLUTION_PRIORITY = {
+    "explicit": 1,
+    "personal": 2,
+    "official": 3,
+    "generic": 4,
+    "fallback": 5,
+}
+FOOD_SOURCE_POLICY_VERSION = "2.0"
 STALE_AFTER_DAYS = {
     "official_product_page": 365,
     "official_nutrition_table": 365,
@@ -40,6 +48,11 @@ NUTRITION_COMPARISON_FIELDS = ("calories_kcal", "protein_g", "fat_g", "carbs_g",
 def source_priority(source_type: str) -> int:
     """Return the deterministic BodyOS source rank; lower is more authoritative."""
     return SOURCE_PRIORITY.get(str(source_type or ""), len(SOURCE_PRIORITY) + 1)
+
+
+def food_resolution_priority(origin: str) -> int:
+    """Return the product-level resolution tier; lower is preferred."""
+    return FOOD_RESOLUTION_PRIORITY.get(str(origin or ""), len(FOOD_RESOLUTION_PRIORITY) + 1)
 
 
 def is_source_current(source: dict[str, Any], as_of: dt.date | None = None) -> bool:
@@ -137,11 +150,89 @@ def select_nutrition_source(candidates: list[dict[str, Any]] | None, *, as_of: d
     }
 
 
+def select_food_resolution_candidate(
+    candidates: list[dict[str, Any]] | None,
+    *,
+    as_of: dt.date | None = None,
+) -> dict[str, Any]:
+    """Choose among explicit, personal, official, generic, and fallback candidates."""
+    date = as_of or dt.date.today()
+    evaluated: list[dict[str, Any]] = []
+    for candidate in candidates or []:
+        if not isinstance(candidate, dict) or candidate.get("usable", True) is False:
+            continue
+        source = normalize_source_metadata(candidate.get("source"))
+        if source_metadata_errors(source) or not is_source_current(source, date):
+            continue
+        summary = deepcopy(candidate)
+        summary["source"] = source
+        summary["resolution_priority"] = food_resolution_priority(str(candidate.get("origin") or ""))
+        summary["source_priority"] = source_priority(str(source.get("source_type") or ""))
+        summary["is_current"] = True
+        summary["is_fresh"] = is_source_fresh(source, date)
+        evaluated.append(summary)
+
+    if not evaluated:
+        return {
+            "status": "not_found",
+            "selected": None,
+            "reason": "no_usable_resolution_candidate",
+            "needs_review": True,
+            "conflict": False,
+            "candidates": [],
+            "policy_version": FOOD_SOURCE_POLICY_VERSION,
+        }
+
+    evaluated.sort(
+        key=lambda candidate: (
+            candidate["resolution_priority"],
+            candidate["source_priority"],
+            not candidate["is_fresh"],
+            str(candidate["source"].get("source_id") or ""),
+        )
+    )
+    top_priority = evaluated[0]["resolution_priority"]
+    top = [candidate for candidate in evaluated if candidate["resolution_priority"] == top_priority]
+    fingerprints = {_nutrition_fingerprint(candidate.get("nutrition")) for candidate in top}
+    if len(top) > 1 and len(fingerprints) > 1:
+        return {
+            "status": "conflict",
+            "selected": None,
+            "reason": "same_resolution_tier_conflict",
+            "needs_review": True,
+            "conflict": True,
+            "candidates": evaluated,
+            "policy_version": FOOD_SOURCE_POLICY_VERSION,
+        }
+
+    selected = top[0]
+    conflict = False
+    needs_review = bool(
+        selected.get("needs_review")
+        or not selected["is_fresh"]
+        or (selected["source"].get("verification_status") != "verified" and selected.get("origin") != "explicit")
+        or conflict
+    )
+    return {
+        "status": "selected_with_conflict" if conflict else "selected",
+        "selected": selected,
+        "reason": "food_resolution_priority" if conflict else "highest_food_resolution_priority",
+        "needs_review": needs_review,
+        "conflict": conflict,
+        "candidates": evaluated,
+        "policy_version": FOOD_SOURCE_POLICY_VERSION,
+    }
+
+
 __all__ = [
     "SOURCE_METADATA_FIELDS",
     "explicit_user_label_source",
     "is_source_current",
     "is_source_fresh",
     "select_nutrition_source",
+    "select_food_resolution_candidate",
+    "food_resolution_priority",
+    "FOOD_RESOLUTION_PRIORITY",
+    "FOOD_SOURCE_POLICY_VERSION",
     "source_priority",
 ]

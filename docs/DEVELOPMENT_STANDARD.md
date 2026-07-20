@@ -78,3 +78,12 @@ When adding columns:
 - Provide defaults in normalization.
 - Preserve existing Japanese and English aliases.
 - Avoid changing the meaning of existing columns without a migration plan.
+
+## Food Knowledge Boundaries
+
+- Application code resolves food only through `resolve_food_text()`.
+- Parser code owns text structure, not nutrition facts or persistence.
+- Resolver and intelligence code accept copied snapshots and perform no repository, network, or Streamlit I/O.
+- Repository adapters own storage details and must return copies rather than mutable storage objects.
+- Candidate selection must use the shared Source Policy; consumers must not implement local priority rules.
+- New OCR, database, API, or AI features must integrate at these boundaries instead of bypassing them.

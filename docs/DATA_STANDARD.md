@@ -92,7 +92,9 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - Parser resolution values distinguish `alias_exact`, `normalized_exact`, `brand_context`, and `unresolved`. Unresolved or ambiguous foods must preserve the original fragment and set `needs_review=true`.
 - Explicit nutrition extracted from user text carries `basis` and `value_origin="explicit_text"`. It maps to the `explicit_user_label` source type and is never silently replaced by official or estimated data.
 - Explicit kcal values in meal text have the highest priority.
-- Food Lookup runs after parsing and before the existing estimate dictionaries. A lookup result is valid only when the reviewed local catalog yields one unambiguous product/menu match.
+- `resolve_food_text()` is the only application-level food-resolution interface. It receives parser output plus a copied Food Knowledge snapshot and never reads or writes a repository.
+- The Resolver collects all candidates before selection. Product-level priority is Explicit Nutrition, Personal Food Master, Official Catalog, Generic Catalog, then Fallback.
+- Lower-level `lookup_food()` remains the official-catalog adapter and must not be called directly by app, import, encounter, or Nutrition Intelligence consumers.
 - Lookup results expose `matched`, `nutrition`, `source`, and `match` metadata. `source` identifies the official product page or official nutrition table used to validate the local catalog item.
 - Lookup results also expose `status` (`matched`, `ambiguous`, `not_found`, or `skipped_explicit_nutrition`), `match_type`, `confidence`, `needs_review`, `candidates`, and the original parsed identity. Ambiguous results are not selected automatically.
 - A parsed brand is a required match constraint. Brand-less parsed items may use an identity-only match only when it is unique.
@@ -108,10 +110,12 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - Candidate deduplication uses the exact personal identity tuple: brand, canonical name, variant, and size. Different variants or sizes must remain separate candidates.
 - Encounter records are append-only and carry a stable idempotency key based on owner, record date, meal type, normalized fragment, save/import operation identity, and a normalized meal-content hash. Replaying identical content must not append a line, create a food, or increment use count; changed content or quantity creates a new encounter.
 - The current JSON/JSONL Food Master adapter is a local MVP. It has no durable hosted backend yet, so Streamlit Cloud restarts or redeploys can discard Food Master data. Existing GitHub persistence applies to `records.csv` only.
+- Repository implementations expose copied personal-food and encounter snapshots. Storage paths, serialization, credentials, and queries must not leak into Resolver or intelligence engines.
+- Resolver counts and source provenance are runtime/encounter metadata. They are not new `records.csv` columns and do not rewrite historical calories.
 
 ## Nutrition Intelligence v1
 
-- Nutrition Intelligence is computed at render time and never adds columns to `records.csv`, rewrites historical records, or changes Body Score.
+- Nutrition Intelligence is computed at render time, consumes the shared Food Knowledge snapshot through Food Resolver, and never adds columns to `records.csv`, rewrites historical records, or changes Body Score.
 - The public pure result includes engine/ruleset/target versions, day status, expected progress, normalized Nutrition Score, confidence, totals, targets, component breakdown, strengths, priorities, actions, comparisons, data quality, and rule trace.
 - Score allocation is calories 20, protein 20, fat 15, carbohydrates 10, fiber 10, salt 10, vegetables 10, and hydration 5. Unavailable metrics are excluded from available points, then earned points are normalized to 100; missing data is never silently scored as zero.
 - Day status is `morning_only`, `partial_day`, `complete_day`, or `unknown_completion`. Morning uses 25% and partial day uses 60% target progress by default; complete days use 100%. Historical dated records with dinner are treated as complete, while current incomplete records retain cautious language.

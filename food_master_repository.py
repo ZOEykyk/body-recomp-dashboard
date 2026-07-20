@@ -10,6 +10,12 @@ from food_master_models import FOOD_MASTER_VERSION, utc_now
 
 
 class FoodMasterRepository(ABC):
+    """Persistence boundary for personal food knowledge.
+
+    Implementations own storage and serialization. Resolver consumers only receive
+    copied snapshots, so a future Supabase adapter can replace the JSON adapter.
+    """
+
     @abstractmethod
     def list_foods(self, user_id: str) -> list[dict[str, Any]]:
         raise NotImplementedError
@@ -37,6 +43,24 @@ class FoodMasterRepository(ABC):
     @abstractmethod
     def list_candidates(self, user_id: str) -> list[dict[str, Any]]:
         raise NotImplementedError
+
+    @abstractmethod
+    def list_encounters(self, user_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def get_knowledge_snapshot(
+        self,
+        user_id: str,
+        *,
+        include_encounters: bool = False,
+    ) -> dict[str, Any]:
+        """Return repository-owned knowledge without leaking mutable storage values."""
+        return {
+            "repository_type": type(self).__name__,
+            "user_id": user_id,
+            "personal_foods": self.list_foods(user_id),
+            "encounters": self.list_encounters(user_id) if include_encounters else [],
+        }
 
 
 class JsonFoodMasterRepository(FoodMasterRepository):
@@ -132,6 +156,28 @@ class JsonFoodMasterRepository(FoodMasterRepository):
             ):
                 return encounter
         return None
+
+    def list_encounters(self, user_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+        if not self.encounters_path.exists():
+            return []
+        try:
+            lines = self.encounters_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        encounters: list[dict[str, Any]] = []
+        for line in lines:
+            try:
+                encounter = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(encounter, dict)
+                and encounter.get("owner_user_id", encounter.get("user_id")) == user_id
+            ):
+                encounters.append(deepcopy(encounter))
+        if limit is not None:
+            return encounters[-max(int(limit), 0):] if limit > 0 else []
+        return encounters
 
     def list_candidates(self, user_id: str) -> list[dict[str, Any]]:
         return [food for food in self.list_foods(user_id) if food.get("status") == "candidate"]
