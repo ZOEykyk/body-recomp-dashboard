@@ -12,6 +12,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from bodyos_standard import SCORE_COMPONENTS, SCORE_COMPONENT_MAXIMA
+from dashboard_aggregation import aggregate_record
 from data_integrity import format_optional_number, format_weight_kg, valid_weight_series
 from nutrition_intelligence import analyze_nutrition
 from workout_history import workout_history_rows
@@ -727,21 +728,35 @@ def render_body_score_summary(latest: pd.Series, chart_df: pd.DataFrame) -> None
 
 def render_todays_metrics(latest: pd.Series, chart_df: pd.DataFrame, this_week: pd.DataFrame) -> None:
     st.subheader("今日のメトリクス")
+    aggregate = aggregate_record(latest)
     this_week_average_weight = valid_weight_series(this_week["体重"]).mean() if not this_week.empty else pd.NA
     markup = textwrap.dedent(
         f"""
         {score_component_styles()}
         <div class="bodyos-component-section">
           {dashboard_metric_cards([
-              {"label": "体重", "value": format_weight_kg(latest["体重"])},
-              {"label": "睡眠", "value": format_metric_number(latest.get("睡眠時間"), "h")},
-              {"label": "歩数", "value": format_metric_number(latest.get("歩数"), "歩")},
-              {"label": "カロリー", "value": format_metric_number(latest.get("推定摂取カロリー"), "kcal")},
+              {"label": "体重", "value": format_weight_kg(aggregate["weight_kg"])},
+              {"label": "睡眠", "value": format_metric_number(aggregate["sleep_hours"], "h")},
+              {"label": "歩数", "value": format_metric_number(aggregate["steps"], "歩")},
+              {
+                  "label": "カロリー",
+                  "value": format_metric_number(aggregate["calories_kcal"], "kcal"),
+                  "caption": (
+                      f"不明 {aggregate['unknown_calorie_count']}件"
+                      if aggregate["unknown_calorie_count"]
+                      else "保存済み実績"
+                  ),
+              },
               {
                   "label": "タンパク質",
-                  "value": format_component_score(
-                      latest.get("タンパク質スコア"),
-                      SCORE_COMPONENT_MAXIMA["タンパク質スコア"],
+                  "value": format_metric_number(aggregate["protein_g"], "g"),
+                  "caption": (
+                      format_component_score(
+                          latest.get("タンパク質スコア"),
+                          SCORE_COMPONENT_MAXIMA["タンパク質スコア"],
+                      )
+                      if aggregate["protein_g"] is None
+                      else "保存済み実績"
                   ),
               },
               {"label": "今週の平均体重", "value": format_optional_number(this_week_average_weight, "kg")},
@@ -862,16 +877,22 @@ def render_core_trend_charts(chart_df: pd.DataFrame) -> None:
 
 def render_recent_details(latest: pd.Series) -> None:
     st.subheader("直近の食事・筋トレ内容")
-    st.write(f"朝: {latest.get('朝', '')} / {int(latest.get('朝カロリー(kcal)', 0)):,}kcal")
-    st.write(f"昼: {latest.get('昼', '')} / {int(latest.get('昼カロリー(kcal)', 0)):,}kcal")
-    st.write(f"夜: {latest.get('夜', '')} / {int(latest.get('夜カロリー(kcal)', 0)):,}kcal")
-    st.write(f"間食: {latest.get('間食', '')} / {int(latest.get('間食カロリー(kcal)', 0)):,}kcal")
+    aggregate = aggregate_record(latest)
+    st.write(f"朝: {latest.get('朝', '')} / {format_metric_number(latest.get('朝カロリー(kcal)'), 'kcal')}")
+    st.write(f"昼: {latest.get('昼', '')} / {format_metric_number(latest.get('昼カロリー(kcal)'), 'kcal')}")
+    st.write(f"夜: {latest.get('夜', '')} / {format_metric_number(latest.get('夜カロリー(kcal)'), 'kcal')}")
+    st.write(f"間食: {latest.get('間食', '')} / {format_metric_number(latest.get('間食カロリー(kcal)'), 'kcal')}")
     st.write(
         f"仕事中のドリンク: {latest.get('仕事中のドリンク', '')} / "
-        f"{int(latest.get('ドリンクカロリー(kcal)', 0)):,}kcal"
+        f"{format_metric_number(latest.get('ドリンクカロリー(kcal)'), 'kcal')}"
     )
     st.write(f"カロリー推定信頼度: {latest.get('カロリー推定信頼度', '')}")
-    st.write(f"筋トレ: {latest.get('筋トレ有無', '')} / {latest.get('筋トレ内容', '')}")
+    st.write(
+        f"筋トレ: {latest.get('筋トレ有無', '')} / "
+        f"{aggregate['workout_session_count']}セッション・"
+        f"{aggregate['workout_exercise_count']}種目・{aggregate['workout_set_count']}セット / "
+        f"{latest.get('筋トレ内容', '')}"
+    )
     st.write(
         f"モード: {latest.get('モード', '')} / イベント名: {latest.get('イベント名', '')} / "
         f"Body Score: {int(latest.get('Body Score', 0))}"
@@ -897,11 +918,19 @@ def render_history_table(chart_df: pd.DataFrame) -> None:
         "歩数",
         "歩数ランク",
         "睡眠時間",
+        "推定摂取カロリー",
+        "カロリー不明件数",
         "筋トレ有無",
+        "筋トレセッション数",
+        "筋トレ種目数",
+        "筋トレセット数",
         "飲酒",
         "飲酒内容",
         "コメント",
     ]
+    for column in history_columns:
+        if column not in history_df.columns:
+            history_df[column] = "—"
     st.dataframe(history_df[history_columns], use_container_width=True, hide_index=True)
 
 
