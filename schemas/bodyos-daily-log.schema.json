@@ -99,9 +99,19 @@
       "$ref": "#/$defs/workout"
     },
     "notes": {
-      "type": [
-        "string",
-        "null"
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "mode": {
@@ -182,11 +192,34 @@
           "minLength": 1
         },
         "quantity": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "exclusiveMinimum": 0
+          "oneOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "value": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "exclusiveMinimum": 0
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "quantity_text": {
           "type": [
@@ -200,8 +233,73 @@
             "null"
           ]
         },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "nutrition": {
           "$ref": "#/$defs/nutrition"
+        },
+        "calories_kcal": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "protein_g": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "fat_g": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "carbs_g": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "carbohydrates_g": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "nutrition_basis": {
+          "enum": [
+            "per_item",
+            "per_package",
+            "per_serving",
+            "per_100g",
+            "per_100ml",
+            "total",
+            "unknown",
+            null
+          ]
+        },
+        "basis": {
+          "enum": [
+            "per_item",
+            "per_package",
+            "per_serving",
+            "per_100g",
+            "per_100ml",
+            "total",
+            "unknown",
+            null
+          ]
         }
       }
     },
@@ -228,6 +326,12 @@
           }
         },
         "snacks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mealItem"
+          }
+        },
+        "snack": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/mealItem"

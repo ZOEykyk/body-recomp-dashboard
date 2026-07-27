@@ -111,6 +111,13 @@ def _text(value: Any) -> str | None:
     return text or None
 
 
+def _notes_text(value: Any) -> str | None:
+    if isinstance(value, list):
+        lines = [text for item in value if (text := _text(item))]
+        return "\n".join(lines) or None
+    return _text(value)
+
+
 def _nutrition(value: Any, path: str, errors: list[str]) -> dict[str, Any] | None:
     if value is None:
         return None
@@ -121,7 +128,7 @@ def _nutrition(value: Any, path: str, errors: list[str]) -> dict[str, Any] | Non
         "calories_kcal": ("calories_kcal", "calories", "kcal"),
         "protein_g": ("protein_g", "protein", "P"),
         "fat_g": ("fat_g", "fat", "F"),
-        "carbs_g": ("carbs_g", "carbs", "C"),
+        "carbs_g": ("carbs_g", "carbohydrates_g", "carbs", "carbohydrates", "C"),
     }
     result: dict[str, Any] = {}
     for field, keys in aliases.items():
@@ -144,7 +151,14 @@ def _meal_item(value: Any, path: str, errors: list[str], warnings: list[str]) ->
         name = value.strip()
         if not name or is_zero_meal_text(name):
             return None
-        return {"name": name, "quantity": None, "quantity_text": None, "unit": None, "nutrition": None}
+        return {
+            "name": name,
+            "quantity": None,
+            "quantity_text": None,
+            "unit": None,
+            "notes": None,
+            "nutrition": None,
+        }
     if not isinstance(value, dict):
         errors.append(f"{path}: 食品は文字列またはobjectにしてください。")
         return None
@@ -154,18 +168,46 @@ def _meal_item(value: Any, path: str, errors: list[str], warnings: list[str]) ->
         errors.append(f"{path}.name: 食品名が必要です。")
         return None
     raw_quantity = value.get("quantity")
-    quantity = _number(raw_quantity)
+    quantity_value = raw_quantity.get("value") if isinstance(raw_quantity, dict) else raw_quantity
+    quantity = _number(quantity_value)
     quantity_text = _text(value.get("quantity_text"))
-    if raw_quantity is not None and (quantity is None or quantity <= 0):
-        quantity_text = quantity_text or str(raw_quantity)
+    unit = _text(value.get("unit"))
+    if isinstance(raw_quantity, dict):
+        unit = unit or _text(raw_quantity.get("unit"))
+    if quantity_value is not None and (quantity is None or quantity <= 0):
+        quantity_text = quantity_text or str(quantity_value)
         quantity = None
         warnings.append(f"{path}.quantity: 自由記述は計算に使わず原文として保持しました。")
+
+    raw_nutrition = value.get("nutrition")
+    if raw_nutrition is None:
+        direct_nutrition_keys = {
+            "calories_kcal",
+            "calories",
+            "kcal",
+            "protein_g",
+            "protein",
+            "fat_g",
+            "fat",
+            "carbs_g",
+            "carbohydrates_g",
+            "carbs",
+            "carbohydrates",
+        }
+        if any(key in value for key in direct_nutrition_keys):
+            raw_nutrition = {
+                key: value.get(key)
+                for key in direct_nutrition_keys
+                if key in value
+            }
+            raw_nutrition["basis"] = _text(value.get("nutrition_basis") or value.get("basis")) or "total"
     return {
         "name": name,
         "quantity": quantity,
         "quantity_text": quantity_text,
-        "unit": _text(value.get("unit")),
-        "nutrition": _nutrition(value.get("nutrition"), f"{path}.nutrition", errors),
+        "unit": unit,
+        "notes": _notes_text(value.get("notes")),
+        "nutrition": _nutrition(raw_nutrition, f"{path}.nutrition", errors),
     }
 
 
@@ -464,8 +506,11 @@ def _canonical_record(raw: dict[str, Any], record_number: int) -> tuple[dict[str
 
     raw_meals = raw.get("meals") if isinstance(raw.get("meals"), dict) else {}
     meals: dict[str, list[dict[str, Any]]] = {}
+    missing_meal = object()
     for meal_type in MEAL_TYPES:
-        source = raw_meals.get(meal_type) if meal_type in raw_meals else _first(raw, LEGACY_MEAL_KEYS[meal_type])
+        source = _first(raw_meals, LEGACY_MEAL_KEYS[meal_type], missing_meal)
+        if source is missing_meal:
+            source = _first(raw, LEGACY_MEAL_KEYS[meal_type])
         meals[meal_type] = _meal_items(source, f"{record_number}件目.meals.{meal_type}", errors, warnings)
 
     workout = _workout(_legacy_workout(raw), errors, warnings)
@@ -520,7 +565,7 @@ def _canonical_record(raw: dict[str, Any], record_number: int) -> tuple[dict[str
             "meals": meals,
             "alcohol": _alcohol(alcohol_raw, raw),
             "workout": workout,
-            "notes": _text(_first(raw, LEGACY_KEYS["notes"])),
+            "notes": _notes_text(_first(raw, LEGACY_KEYS["notes"])),
             "mode": _text(_first(raw, LEGACY_KEYS["mode"])),
             "event_name": _text(_first(raw, LEGACY_KEYS["event_name"])),
             "nutrition_totals": nutrition_totals,

@@ -68,6 +68,51 @@ def main() -> None:
     check(not resolver_calls, "resolver is not called for explicit item nutrition")
     check(nutrition["unknown_calorie_count"] == 0, "fully explicit fixture has no unknown calories")
 
+    compatibility_fixture = json.loads(
+        (ROOT / "tests/fixtures/pr13_compatibility_input_2026-07-26.json").read_text(encoding="utf-8")
+    )
+    compatibility_original = deepcopy(compatibility_fixture)
+    compatibility_document = normalize_import_document(compatibility_fixture)
+    compatibility_record = compatibility_document["records"][0]
+    compatibility_nutrition = resolve_record_nutrition(
+        compatibility_record,
+        lambda text, meal_type: {"items": []},
+    )
+    check(not compatibility_document["warnings"], "compatible Schema 1.0 aliases do not create false warnings")
+    check(
+        sum(len(items) for items in compatibility_record["meals"].values()) == 11,
+        "singular snack key retains all eleven foods",
+    )
+    check(len(compatibility_record["meals"]["snacks"]) == 3, "snack alias normalizes to snacks")
+    first_breakfast = compatibility_record["meals"]["breakfast"][0]
+    check(
+        first_breakfast["quantity"] == 1 and first_breakfast["unit"] == "個",
+        "quantity object normalizes to quantity and unit",
+    )
+    check(
+        first_breakfast["nutrition"]["basis"] == "total",
+        "direct item nutrition normalizes as consumed total",
+    )
+    check(
+        compatibility_nutrition["totals"]
+        == {"calories_kcal": 428.0, "protein_g": 16.5, "fat_g": 3.1, "carbs_g": 23.9},
+        "direct calories and macro aliases are retained without multiplication",
+    )
+    check(compatibility_nutrition["unknown_calorie_count"] == 8, "unknown foods remain explicitly unknown")
+    check(
+        compatibility_record["meals"]["lunch"][0]["notes"] == "2枚を2人でシェア",
+        "meal item notes are retained",
+    )
+    check(
+        compatibility_record["notes"] == "1週間ぶりのジム再開\n彼女と江戸川橋のnove.でランチ",
+        "daily notes array preserves order as text",
+    )
+    check(
+        workout_counts(compatibility_record["workout"])["set_count"] == 20,
+        "compatibility input retains all workout sets",
+    )
+    check(compatibility_fixture == compatibility_original, "compatibility input object is not mutated")
+
     unknown_document = normalize_import_document(
         {
             "schema_version": "1.0",

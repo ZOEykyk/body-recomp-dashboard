@@ -52,6 +52,21 @@ Meals are grouped under `breakfast`, `lunch`, `dinner`, `snacks`, and `drinks`.
 }
 ```
 
+The input adapter also accepts these Schema 1.0 compatibility forms and
+normalizes them to the canonical structure above:
+
+- `snack` as an alias for `snacks`.
+- `quantity: {"value": 1, "unit": "個"}`.
+- Item-level `calories_kcal`, `protein_g`, `fat_g`, `carbs_g`, or
+  `carbohydrates_g`.
+- A daily `notes` array, which is preserved in order as newline-separated
+  text.
+
+Direct item-level nutrition fields describe the consumed entry total and
+normalize to `nutrition.basis: "total"`. Use nested `nutrition` with an
+explicit basis when values are per item, per package, per serving, per 100 g,
+or per 100 ml.
+
 Nutrition precedence for import aggregation is:
 
 1. Explicit item or daily nutrition
