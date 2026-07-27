@@ -17,6 +17,8 @@ Project BodyOS は、日々の行動を同じ物差しで眺めつつ、通常�
 - [PR12 Acceptance Test](docs/PR12_ACCEPTANCE_TEST.md)
 - [PR12 Deployment Checklist](docs/PR12_DEPLOYMENT_CHECKLIST.md)
 - [PR12 Migration Review](docs/PR12_MIGRATION_REVIEW.md)
+- [BodyOS Import Schema 1.0](docs/bodyos-import-schema.md)
+- [PR13 Acceptance Test](docs/PR13_ACCEPTANCE_TEST.md)
 - [Contributing](docs/CONTRIBUTING.md)
 - [PRD Template](docs/PRD/PRD_TEMPLATE.md)
 - [ADR Template](docs/ADR/ADR_TEMPLATE.md)
@@ -135,67 +137,15 @@ Dashboard v1.0は、開いた直後に今日の状態を把握できるように
 
 既存の履歴レコードは通常起動だけでは自動書き換えしません。新しいルールは新規作成、明示的な編集、または明示的な再インポート時に適用します。
 
-## ChatGPT JSONログ形式
+## BodyOS JSON Import
 
-アプリの「ChatGPTログ貼り付け」欄には、1日分のJSONオブジェクト、または複数日分のJSON配列を貼り付けます。同じ日付の記録が既にある場合は上書きし、なければ追加します。
+アプリの`BodyOS JSON Import`では、正式Schema 1.0または従来のBodyOS/ChatGPT JSONを受け付けます。保存前に対象日、食事件数、Workoutのセッション・種目・セット数、既存日との競合、警告をPreviewできます。
 
-```json
-{
-  "日付": "2026-06-28",
-  "mode": "EVENT",
-  "event_name": "焼肉",
-  "体重": 85.2,
-  "歩数": 8200,
-  "歩数ランク": "B",
-  "睡眠時間": 7.5,
-  "朝": "プロテイン、トマトジュース",
-  "昼": "うどん、とり天",
-  "夜": "鶏むね肉、白米、サラダ",
-  "間食": "オイコス",
-  "仕事中のドリンク": "コーヒー、カフェラテ",
-  "推定摂取カロリー": 1850,
-  "筋トレ有無": true,
-  "筋トレ内容": "ベンチプレス 90kg 5,6,6,4 / サイドレイズ 12kg 15回",
-  "体調": "良い",
-  "飲酒": "なし",
-  "飲酒内容": "",
-  "飲酒レベル": "なし",
-  "今日の採点": 85,
-  "コメント": "歩数と食事は良好。明日は睡眠を増やす。"
-}
-```
+同一日がある場合は、初期値`更新`のほか、`置換`または`中止`を明示的に選択できます。同一JSONを再実行しても日次行、Workout、Food Encounterは重複しません。内容を変更した同日JSONは同じ日次行を更新し、Food Encounterには新しいcontent fingerprintが使われます。
 
-複数日分の場合:
+保存後は項目別Diagnosticsとカロリー不明件数を表示します。明示栄養を最優先し、なければPersonal、Official、Genericの順で一度だけ解決します。Fallback値は既存手入力の概算では維持しますが、正式Importでは既知栄養へ昇格せず`null`と不明件数を保存します。
 
-```json
-[
-  {
-    "日付": "2026-06-28",
-    "モード": "NORMAL",
-    "体重": 85.2,
-    "歩数": 8200,
-    "睡眠時間": 7.5,
-    "朝": "プロテイン",
-    "昼": "うどん",
-    "夜": "鶏むね肉",
-    "間食": "オイコス",
-    "仕事中のドリンク": "コーヒー",
-    "推定摂取カロリー": 1850,
-    "筋トレ有無": true,
-    "筋トレ内容": "ベンチプレス 90kg 5,6,6,4",
-    "体調": "良い",
-    "飲酒": "なし",
-    "今日の採点": 85,
-    "コメント": "よくできた"
-  }
-]
-```
-
-英語キーも一部受け付けます。例: `date`, `mode`, `event`, `event_name`, `weight`, `steps`, `sleep_hours`, `breakfast`, `lunch`, `dinner`, `meal`, `snacks`, `work_drinks`, `calories`, `trained`, `workout`, `workout_detail`, `condition`, `alcohol`, `drinking`, `drank_alcohol`, `alcohol_detail`, `alcohol_level`, `drinking_level`, `score`, `body_score`, `total_score`, `comment`。
-
-筋トレ実績は `workout.performed`、`筋トレ有無`、`trained` のいずれでも取り込めます。`あり`、`true`、`yes`、`done`、`実施`、`した` は筋トレあり、`なし`、`false`、`no`、`none`、`休み`、`してない` は筋トレなしとして正規化されます。
-
-`workout.menu` は文字列、配列、オブジェクト配列に対応しています。配列は ` / ` 区切りで保存し、`{"exercise":"ベンチプレス","result":"90kg×5×4"}` のようなオブジェクトは `ベンチプレス 90kg×5×4` の形式に変換して `筋トレ内容` に保存します。
+正式な項目、Workoutセット形式、欠損値、互換ルールは[BodyOS Import Schema 1.0](docs/bodyos-import-schema.md)を参照してください。保存済み日は同じSchemaでJSON Exportできます。
 
 週ごとの筋トレ回数は、保存値の文字列完全一致ではなく、正規化後の筋トレ有無で集計されます。
 
@@ -211,6 +161,6 @@ Workout Intelligence v1 は `workout_intelligence.py` の `analyze_workout(recor
 - 履歴がある場合の簡易PR候補
 - 次回ターゲットの提案
 
-解析は概算です。既存の `筋トレ内容` テキストはそのまま保存し、CSVスキーマは変更しません。
+解析は概算です。既存の`筋トレ内容`テキストはそのまま読めます。正式Importはセッション、種目、順序付きセットを`構造化筋トレJSON`へ保存し、既存表示用テキストも同時に保持します。
 
 日付や数値が読み取れない場合は、アプリ上に「何件目のどの項目が読み取れなかったか」を表示します。

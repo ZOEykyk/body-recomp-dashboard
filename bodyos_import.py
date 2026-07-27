@@ -11,6 +11,7 @@ from typing import Any, Callable, Iterable
 from uuid import uuid4
 
 from data_integrity import is_zero_meal_text
+from food_lookup import calculate_lookup_total
 from workout_intelligence import parse_workout_detail
 
 
@@ -406,6 +407,29 @@ def _canonical_record(raw: dict[str, Any], record_number: int) -> tuple[dict[str
     warnings: list[str] = []
     schema_version = _text(raw.get("schema_version"))
     legacy = schema_version is None
+    if not legacy:
+        allowed_keys = {
+            "schema_version",
+            "date",
+            "weight",
+            "sleep",
+            "condition",
+            "steps",
+            "meals",
+            "alcohol",
+            "workout",
+            "notes",
+            "mode",
+            "event_name",
+            "nutrition_totals",
+        }
+        unknown_keys = sorted(set(raw) - allowed_keys)
+        if unknown_keys:
+            errors.append(f"{record_number}件目: 未定義フィールドがあります（{', '.join(unknown_keys)}）。")
+        if "meals" in raw and not isinstance(raw.get("meals"), dict):
+            errors.append(f"{record_number}件目.meals: objectにしてください。")
+        if isinstance(raw.get("sleep"), dict) and set(raw["sleep"]) - {"hours"}:
+            errors.append(f"{record_number}件目.sleep: hours以外のフィールドは使用できません。")
     if schema_version is not None and schema_version != IMPORT_SCHEMA_VERSION:
         errors.append(
             f"{record_number}件目.schema_version: 未対応です（{schema_version}）。対応版は{IMPORT_SCHEMA_VERSION}です。"
@@ -678,7 +702,18 @@ def resolve_record_nutrition(
         meal_known = {field: 0 for field in NUTRITION_FIELDS}
         for item in record.get("meals", {}).get(meal_type) or []:
             explicit = item.get("nutrition") if isinstance(item.get("nutrition"), dict) else None
-            nutrition = deepcopy(explicit) if explicit and any(explicit.get(field) is not None for field in NUTRITION_FIELDS) else None
+            nutrition = None
+            if explicit and any(explicit.get(field) is not None for field in NUTRITION_FIELDS):
+                if explicit.get("basis") == "total":
+                    nutrition = deepcopy(explicit)
+                else:
+                    quantity_result = calculate_lookup_total(
+                        {"matched": True, "nutrition": explicit},
+                        item.get("quantity"),
+                        item.get("unit"),
+                    )
+                    if not quantity_result.get("needs_review"):
+                        nutrition = deepcopy(quantity_result.get("total_nutrition"))
             source = "explicit" if nutrition is not None else None
             if nutrition is None:
                 resolution = resolver(str(item.get("name") or ""), meal_type)

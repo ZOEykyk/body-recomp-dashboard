@@ -11,19 +11,21 @@ ChatGPT coaching conversation
 ↓
 JSON log
 ↓
-Streamlit JSON import
+Schema Validation / Import Preview
 ↓
-Normalizer
+BodyOS Import Service
 ↓
 Food Parser
 ↓
 Food Resolver / Source Policy
 ↓
-Workout normalizer
+Structured Workout normalizer
 ↓
-Workout Intelligence
+Atomic daily-row upsert
 ↓
 CSV storage
+↓
+Dashboard Aggregation
 ↓
 Dashboard renderer
 ↓
@@ -35,7 +37,10 @@ Body Score / Coach feedback
 ## Main Components
 
 - `app.py`: Streamlit page setup, input forms, JSON import flow, normalization, CSV persistence, GitHub-backed storage, and high-level orchestration.
+- `bodyos_import.py`: Pure Schema 1.0 adapter, legacy conversion, validation, Preview, diagnostics, anomaly detection, single-path nutrition aggregation, structured workout projection, and JSON export.
 - `dashboard.py`: Dashboard rendering layer for the Dashboard v1.0 information hierarchy, metrics, core trend charts, normalized score component cards, improvement priorities, recent details, history tables, and Workout Intelligence display.
+- `dashboard_aggregation.py`: Stored-value-only daily aggregate contract shared by Dashboard components.
+- `workout_history.py`: Structured Workout JSON reader and compact session/exercise/set history projection.
 - `records.csv`: Current source of truth for user records.
 - `food_dictionary.json`: General food calorie estimates.
 - `brand_dictionary.json`: Brand and convenience food calorie estimates.
@@ -104,7 +109,7 @@ PR9 adds a Personal Food Master before seed lookup. It separates append-only foo
 
 Personal Food Master encounter writes are idempotent. A stable fingerprint includes owner, date, meal type, normalized fragment, save/import identity, and a normalized meal-content hash. Supabase enforces the key with a unique constraint and saves the Encounter plus usage increment in one RPC transaction. It prevents retries or repeated imports from incrementing usage more than once, while changed content or quantity on the same date becomes a new encounter. The compact management UI remains isolated and works only through `FoodMasterRepository`.
 
-Supabase writes from ordinary authenticated roles are RPC-only. The normalized schema ties aliases to both food and owner, and keys nutrition sources by food plus source ID so repeated domain identifiers remain valid without cross-food joins. Startup health requires schema version `20260720.2`; a partial or stale schema is treated as unavailable.
+Supabase writes from ordinary authenticated roles are RPC-only. The normalized schema ties aliases to both food and owner, and keys nutrition sources by food plus source ID so repeated domain identifiers remain valid without cross-food joins. After the PR13 Alias migration, startup health requires schema version `20260727.1`; a partial or stale schema is treated as unavailable.
 
 Nutrition Intelligence is a separate read-time layer after nutrition resolution. `dashboard.py` calls the pure `analyze_nutrition(record, history, profile, now, food_knowledge)` interface. The engine passes the copied snapshot to the shared Resolver and has no Streamlit, file, network, repository, or LLM dependency.
 
@@ -119,11 +124,15 @@ app.py
 ↓
 dashboard.py
 ↓
+dashboard_aggregation.py / workout_history.py
+↓
 bodyos_standard.py / workout_intelligence.py
 ```
 
 - `app.py` orchestrates page setup, data loading, data saving, imports, and user input.
 - `dashboard.py` renders visual summaries and calls stable analysis interfaces. It derives component achievement percentages at render time and does not change stored raw scores.
+- `dashboard_aggregation.py` reads only persisted values and never reruns calorie or workout estimation.
+- `workout_history.py` renders structured session, exercise, and ordered-set history while legacy text remains supported.
 - `bodyos_standard.py` evaluates daily BodyOS scores and exposes shared component maximum scores through `SCORE_COMPONENT_MAXIMA`.
 - `workout_intelligence.py` analyzes workout detail text.
 

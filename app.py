@@ -261,6 +261,11 @@ def get_config_value(name: str, default: str = "") -> str:
     return str(value or os.environ.get(name, default) or "").strip()
 
 
+def streamlit_session_state() -> Any:
+    state = getattr(st, "session_state", None)
+    return state if hasattr(state, "get") and hasattr(state, "__setitem__") else {}
+
+
 def food_repository_config() -> dict[str, str]:
     names = [
         "FOOD_KNOWLEDGE_REPOSITORY",
@@ -962,7 +967,8 @@ def apply_import_rows(
         if not matches:
             new_row = {column: row.get(column) for column in COLUMNS}
             new_row["_date_key"] = date_key
-            result = pd.concat([result, pd.DataFrame([new_row])], ignore_index=True)
+            new_frame = pd.DataFrame([new_row], columns=[*COLUMNS, "_date_key"])
+            result = new_frame if result.empty else pd.concat([result, new_frame], ignore_index=True)
             counts["added"] += 1
             continue
         if conflict_policy == "cancel":
@@ -1180,15 +1186,16 @@ chatgpt_log = st.text_area(
     placeholder='{"日付":"2026-06-30","mode":"EVENT","event_name":"仕事後の飲み会","weight":84.2,"steps":3493,"sleep_hours":3.83,"condition":7,"workout":false,"alcohol":"あり","alcohol_detail":"ビール1杯、濃いめハイボール約7杯","meal":"魚料理中心、飲み会前にグリルチキン・紅鮭おにぎり・半熟ゆで卵","推定摂取カロリー":2081,"コメント":"Body Scoreは省略してアプリ側で自動計算"}',
     height=220,
 )
+import_state = streamlit_session_state()
 
 if st.button("取り込み内容を確認"):
     try:
         document = parse_import_json(chatgpt_log)
         existing_dates = set(pd.to_datetime(df["日付"], errors="coerce").dt.strftime("%Y-%m-%d").dropna())
         preview = preview_import(document, existing_dates)
-        st.session_state["bodyos_import_document"] = document
-        st.session_state["bodyos_import_preview"] = preview
-        st.session_state.pop("bodyos_import_result", None)
+        import_state["bodyos_import_document"] = document
+        import_state["bodyos_import_preview"] = preview
+        import_state.pop("bodyos_import_result", None)
     except BodyOSImportValidationError as exc:
         st.error("JSONを検証できませんでした。入力内容を確認してください。")
         for message in exc.errors:
@@ -1203,8 +1210,8 @@ if st.button("取り込み内容を確認"):
         with st.expander("開発者向け詳細"):
             st.code(f"{type(exc).__name__}: {exc}")
 
-import_document = st.session_state.get("bodyos_import_document")
-import_preview = st.session_state.get("bodyos_import_preview")
+import_document = import_state.get("bodyos_import_document")
+import_preview = import_state.get("bodyos_import_preview")
 if isinstance(import_document, dict) and isinstance(import_preview, dict):
     st.subheader("Import Preview")
     preview_rows = pd.DataFrame(import_preview["records"]).rename(
@@ -1298,7 +1305,7 @@ if isinstance(import_document, dict) and isinstance(import_preview, dict):
                 "unknown_calorie_count": unknown_count,
                 "food_summary": food_summary,
             }
-            st.session_state["bodyos_import_result"] = result
+            import_state["bodyos_import_result"] = result
             LOGGER.info(
                 json.dumps(
                     structured_import_log(
@@ -1333,7 +1340,7 @@ if isinstance(import_document, dict) and isinstance(import_preview, dict):
             with st.expander("開発者向け詳細"):
                 st.code(f"{type(exc).__name__}: {exc}")
 
-import_result = st.session_state.get("bodyos_import_result")
+import_result = import_state.get("bodyos_import_result")
 if isinstance(import_result, dict):
     st.success(
         f"日次 {import_result['daily_count']}件を保存しました。"

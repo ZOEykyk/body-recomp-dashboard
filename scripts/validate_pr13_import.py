@@ -79,6 +79,31 @@ def main() -> None:
     check(unknown["totals"]["calories_kcal"] is None, "fallback estimate remains null in import")
     check(unknown["unknown_calorie_count"] == 1, "unknown calorie count is retained")
 
+    quantity_nutrition = normalize_import_document(
+        {
+            "schema_version": "1.0",
+            "date": "2026-07-19",
+            "meals": {
+                "snacks": [
+                    {
+                        "name": "商品A",
+                        "quantity": 2,
+                        "unit": "個",
+                        "nutrition": {"calories_kcal": 100, "basis": "per_item"},
+                    },
+                    {
+                        "name": "商品B",
+                        "quantity": 180,
+                        "unit": "g",
+                        "nutrition": {"calories_kcal": 250, "basis": "per_100g"},
+                    },
+                ]
+            },
+        }
+    )["records"][0]
+    quantity_totals = resolve_record_nutrition(quantity_nutrition, fallback_only)
+    check(quantity_totals["totals"]["calories_kcal"] == 650, "compatible quantity basis is calculated once")
+
     preview = preview_import(document, {"2026-07-26"})
     check(preview["conflict_count"] == 1, "existing date conflict is visible before save")
     check(preview["exercise_count"] == 6 and preview["set_count"] == 20, "preview counts structured workout")
