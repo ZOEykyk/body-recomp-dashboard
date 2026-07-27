@@ -13,7 +13,7 @@ from food_master_repository import FoodMasterRepository
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_SECONDS = 8.0
-EXPECTED_SCHEMA_VERSION = "20260720.2"
+EXPECTED_SCHEMA_VERSION = "20260727.1"
 ENCOUNTER_COLUMNS = {
     "encounter_id",
     "idempotency_key",
@@ -138,10 +138,16 @@ def _food_row(user_id: str, food: dict[str, Any]) -> dict[str, Any]:
 
 def _alias_rows(user_id: str, food: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
+    metadata = {
+        normalize_food_name(item.get("alias")).lower(): item
+        for item in food.get("alias_metadata") or []
+        if isinstance(item, dict) and normalize_food_name(item.get("alias"))
+    }
     for alias in food.get("aliases") or []:
         normalized = normalize_food_name(alias).lower().strip()
         if not normalized:
             continue
+        alias_metadata = metadata.get(normalized, {})
         rows.append(
             {
                 "food_id": food.get("food_id"),
@@ -150,7 +156,10 @@ def _alias_rows(user_id: str, food: dict[str, Any]) -> list[dict[str, Any]]:
                 "normalized_alias": normalized,
                 "language": "ja",
                 "confidence": "high",
-                "review_status": food.get("review_status") or "pending_review",
+                "review_status": alias_metadata.get("review_status") or food.get("review_status") or "pending_review",
+                "source": alias_metadata.get("source") or "legacy",
+                "ai_model": alias_metadata.get("ai_model"),
+                "approved_by_user": bool(alias_metadata.get("approved_by_user", food.get("review_status") == "reviewed")),
             }
         )
     return rows
@@ -228,8 +237,20 @@ def _hydrate_foods(
     facts: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     aliases_by_food: dict[str, list[str]] = {}
+    alias_metadata_by_food: dict[str, list[dict[str, Any]]] = {}
     for alias in aliases:
-        aliases_by_food.setdefault(str(alias.get("food_id")), []).append(str(alias.get("alias") or ""))
+        if alias.get("approved_by_user") is True:
+            aliases_by_food.setdefault(str(alias.get("food_id")), []).append(str(alias.get("alias") or ""))
+        alias_metadata_by_food.setdefault(str(alias.get("food_id")), []).append(
+            {
+                "alias": alias.get("alias"),
+                "normalized_alias": alias.get("normalized_alias"),
+                "source": alias.get("source"),
+                "ai_model": alias.get("ai_model"),
+                "approved_by_user": alias.get("approved_by_user"),
+                "review_status": alias.get("review_status"),
+            }
+        )
     facts_by_source = {
         (str(fact.get("food_id")), str(fact.get("source_id"))): fact
         for fact in facts
@@ -254,6 +275,7 @@ def _hydrate_foods(
         food["user_id"] = food.get("owner_user_id")
         food_id = str(food.get("food_id") or "")
         food["aliases"] = [alias for alias in aliases_by_food.get(food_id, []) if alias]
+        food["alias_metadata"] = alias_metadata_by_food.get(food_id, [])
         food["nutrition_sources"] = sources_by_food.get(food_id, [])
         hydrated.append(food)
     return hydrated
@@ -333,6 +355,44 @@ class SupabaseFoodMasterRepository(FoodMasterRepository):
         food["updated_at"] = utc_now()
         self.upsert_food(user_id, food)
 
+    def add_alias(
+        self,
+        user_id: str,
+        food_id: str,
+        alias: str,
+        *,
+        source: str = "manual",
+        ai_model: str | None = None,
+        approved_by_user: bool = True,
+    ) -> dict[str, Any]:
+        value = normalize_food_name(alias)
+        if not value:
+            raise ValueError("alias is required")
+        if not approved_by_user:
+            raise ValueError("alias must be approved by the user before persistence")
+        try:
+            self.client.request(
+                "POST",
+                "rpc/upsert_food_alias_v1",
+                payload={
+                    "p_owner_user_id": user_id,
+                    "p_food_id": food_id,
+                    "p_alias": value,
+                    "p_normalized_alias": value.lower(),
+                    "p_source": source,
+                    "p_ai_model": ai_model,
+                    "p_approved_by_user": True,
+                },
+            )
+            self._mark_write()
+            food = self.get_food(user_id, food_id)
+            if food is None:
+                raise SupabaseRepositoryError("Alias saved but food could not be reloaded")
+            return food
+        except Exception as exc:
+            self._mark_error(exc)
+            raise
+
     def append_encounter(self, user_id: str, encounter: dict[str, Any]) -> dict[str, Any]:
         payload = _encounter_row(user_id, encounter)
         try:
@@ -384,7 +444,8 @@ class SupabaseFoodMasterRepository(FoodMasterRepository):
     def find_by_alias(self, user_id: str, normalized_alias: str) -> list[dict[str, Any]]:
         aliases = self._select(
             "food_aliases",
-            f"select=food_id&owner_user_id=eq.{_quoted(user_id)}&normalized_alias=eq.{_quoted(normalized_alias)}",
+            f"select=food_id&owner_user_id=eq.{_quoted(user_id)}"
+            f"&normalized_alias=eq.{_quoted(normalized_alias)}&approved_by_user=is.true",
         )
         food_ids = [str(alias.get("food_id")) for alias in aliases if alias.get("food_id")]
         if not food_ids:
