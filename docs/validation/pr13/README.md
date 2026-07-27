@@ -15,6 +15,20 @@ Validated with the actual Streamlit application on 2026-07-27 using
   of adding another row.
 - Re-importing the identical JSON reports 0 encounters saved and
   4 duplicate encounters skipped.
+- The compatibility fixture projects all 11 foods from persisted structured
+  meals. Snacks display as `ドトール スイートポテト、コーヒー、ジェラート`.
+- Meal calories use the same persisted nutrition path as the 1,588 kcal daily
+  total: breakfast 298, lunch 100 known kcal with one unknown item, snacks
+  150 known kcal with one unknown item, and dinner 1,040 kcal.
+- Missing event, alcohol detail, and drinks never expose `nan`, `None`, or an
+  empty collection. Array notes render as natural text separated by `／`.
+- Editing the Previewed compatibility JSON from 11,786 to 12,000 steps hides
+  the stale save action and requires a new Preview.
+- Saving that new Preview updates the existing day in place. The Dashboard
+  immediately shows 12,000 steps while retaining 11 foods, 1 workout session,
+  6 exercises, 20 sets, and 1,588 kcal.
+- Repeating the exact 12,000-step JSON keeps one daily row and reports
+  `Encounter saved: 0 / Duplicate skipped: 11`.
 - Desktop width: 1280 px.
 - Mobile width: 390 px, with no document-level horizontal overflow.
 - No browser errors were emitted by the active Streamlit application.
@@ -30,6 +44,10 @@ Validated with the actual Streamlit application on 2026-07-27 using
 - `compatibility-import-desktop-1280.png`: compatibility input with 11 foods.
 - `compatibility-reimport-desktop-1280.png`: identical re-import with all
   11 Food Encounters skipped as duplicates.
+- `dashboard-projection-desktop-1280.png`: completed meal, calorie, missing
+  value, Workout, and notes Projection.
+- `same-day-update-desktop-1280.png`: Dashboard immediately showing 12,000
+  steps after the changed same-day update.
 
 ## Compatibility Input
 
