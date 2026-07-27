@@ -27,6 +27,27 @@ Validated with the actual Streamlit application on 2026-07-27 using
 - `dashboard-mobile-390.png`: responsive dashboard summary.
 - `import-desktop-1280.png`: import preview and idempotent re-import result.
 - `import-mobile-390.png`: responsive import result.
+- `compatibility-import-desktop-1280.png`: compatibility input with 11 foods.
+- `compatibility-reimport-desktop-1280.png`: identical re-import with all
+  11 Food Encounters skipped as duplicates.
+
+## Compatibility Input
+
+`tests/fixtures/pr13_compatibility_input_2026-07-26.json` validates the
+actual alternate Schema 1.0 input shapes:
+
+- scalar sleep value
+- singular `snack`
+- object-form quantity and unit
+- direct item calories and macro fields
+- array-form daily notes
+
+The actual Streamlit application previewed and saved 11 foods, one workout
+session, six exercises, 20 sets, and 75 minutes. The dashboard showed
+1,588 known kcal, 16.5 g protein, and two foods with unknown calories after
+the shared Food Resolver resolved six of the eight non-explicit items.
+Re-importing the identical JSON kept one daily row and reported
+`Encounter saved: 0 / Duplicate skipped: 11`.
 
 ## Acceptance Fixture Note
 
