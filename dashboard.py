@@ -14,6 +14,7 @@ import streamlit.components.v1 as components
 from bodyos_standard import SCORE_COMPONENTS, SCORE_COMPONENT_MAXIMA
 from data_integrity import format_optional_number, format_weight_kg, valid_weight_series
 from nutrition_intelligence import analyze_nutrition
+from workout_history import workout_history_rows
 from workout_intelligence import analyze_workout
 
 X_AXIS_LABEL_ANGLE = -40
@@ -700,6 +701,10 @@ def render_workout_intelligence(latest: pd.Series, data: pd.DataFrame) -> None:
         """
     ).strip()
     render_html_section(markup, fallback_height=420)
+    structured_history = workout_history_rows(data)
+    if structured_history:
+        with st.expander("筋トレ履歴", expanded=False):
+            st.dataframe(pd.DataFrame(structured_history), use_container_width=True, hide_index=True)
 
 
 def render_body_score_summary(latest: pd.Series, chart_df: pd.DataFrame) -> None:
