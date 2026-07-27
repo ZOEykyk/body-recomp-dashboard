@@ -17,6 +17,7 @@ class FakeStreamlit(types.ModuleType):
     def __init__(self) -> None:
         super().__init__("streamlit")
         self.secrets = {}
+        self.session_state = {}
 
     def __enter__(self):
         return self
@@ -31,6 +32,9 @@ class FakeStreamlit(types.ModuleType):
         return None
 
     def form(self, *_args, **_kwargs):
+        return self
+
+    def expander(self, *_args, **_kwargs):
         return self
 
     def columns(self, spec, *_args, **_kwargs):

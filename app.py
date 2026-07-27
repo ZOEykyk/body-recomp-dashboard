@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import re
+import tempfile
+import time
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,17 @@ from bodyos_standard import (
     SCORE_COMPONENTS,
     calculate_bodyos_score,
     normalize_mode,
+)
+from bodyos_import import (
+    ImportValidationError as BodyOSImportValidationError,
+    canonical_to_projection,
+    export_projection,
+    import_document_fingerprint,
+    operation_import_id,
+    parse_import_json,
+    preview_import,
+    resolve_record_nutrition,
+    structured_import_log,
 )
 from data_integrity import (
     parse_optional_positive_number,
@@ -86,6 +99,18 @@ OPTIONAL_COLUMNS = [
     "睡眠スコア",
     "体調スコア",
     "飲酒スコア",
+    "タンパク質(g)",
+    "脂質(g)",
+    "炭水化物(g)",
+    "カロリー不明件数",
+    "筋トレセッション数",
+    "筋トレ種目数",
+    "筋トレセット数",
+    "筋トレ時間(分)",
+    "構造化食事JSON",
+    "構造化筋トレJSON",
+    "Import ID",
+    "Import Schema Version",
 ]
 
 COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
@@ -123,6 +148,10 @@ TEXT_COLUMNS = [
     "Body Score種別",
     "コメント",
     "カロリー推定信頼度",
+    "構造化食事JSON",
+    "構造化筋トレJSON",
+    "Import ID",
+    "Import Schema Version",
 ]
 
 NUMERIC_COLUMNS = [
@@ -147,7 +176,28 @@ NUMERIC_COLUMNS = [
     "睡眠スコア",
     "体調スコア",
     "飲酒スコア",
+    "タンパク質(g)",
+    "脂質(g)",
+    "炭水化物(g)",
+    "カロリー不明件数",
+    "筋トレセッション数",
+    "筋トレ種目数",
+    "筋トレセット数",
+    "筋トレ時間(分)",
 ]
+
+NULLABLE_NUMERIC_COLUMNS = {
+    "推定摂取カロリー",
+    "朝カロリー(kcal)",
+    "昼カロリー(kcal)",
+    "夜カロリー(kcal)",
+    "間食カロリー(kcal)",
+    "ドリンクカロリー(kcal)",
+    "タンパク質(g)",
+    "脂質(g)",
+    "炭水化物(g)",
+    "筋トレ時間(分)",
+}
 
 CALORIE_CONFIDENCE_LEVELS = {"low": 0, "medium": 1, "high": 2}
 
@@ -210,6 +260,11 @@ def get_config_value(name: str, default: str = "") -> str:
     except Exception:
         value = ""
     return str(value or os.environ.get(name, default) or "").strip()
+
+
+def streamlit_session_state() -> Any:
+    state = getattr(st, "session_state", None)
+    return state if hasattr(state, "get") and hasattr(state, "__setitem__") else {}
 
 
 def food_repository_config() -> dict[str, str]:
@@ -721,7 +776,10 @@ def normalize_columns(data: pd.DataFrame) -> pd.DataFrame:
 
     for column in COLUMNS:
         if column not in data.columns:
-            data[column] = "" if column in TEXT_COLUMNS else 0
+            data[column] = "" if column in TEXT_COLUMNS else pd.NA if column in NULLABLE_NUMERIC_COLUMNS else 0
+
+    for column in TEXT_COLUMNS:
+        data[column] = data[column].astype("object")
 
     data["筋トレ内容"] = data.apply(
         lambda row: substantive_training_detail(row["筋トレ内容"]) or substantive_training_detail(row["筋トレ有無"]),
@@ -755,10 +813,9 @@ def load_data() -> pd.DataFrame:
         loaded = loaded.dropna(subset=["日付"])
         for column in NUMERIC_COLUMNS:
             loaded[column] = pd.to_numeric(loaded[column], errors="coerce")
-            if column not in SCORE_COMPONENTS:
+            if column not in SCORE_COMPONENTS and column not in NULLABLE_NUMERIC_COLUMNS:
                 loaded[column] = loaded[column].fillna(0)
         loaded["歩数"] = loaded["歩数"].astype(int)
-        loaded["推定摂取カロリー"] = loaded["推定摂取カロリー"].astype(int)
         loaded["今日の採点"] = loaded["今日の採点"].astype(int)
         loaded["Body Score"] = loaded["Body Score"].fillna(0).astype(int)
         loaded["モード"] = loaded["モード"].apply(normalize_mode)
@@ -780,7 +837,20 @@ def save_data(data: pd.DataFrame) -> None:
     if github_storage_enabled():
         write_github_records(csv_text)
 
-    data.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+    destination = Path(DATA_FILE)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        dir=destination.parent,
+    )
+    os.close(file_descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        temporary_path.write_text(csv_text, encoding="utf-8-sig")
+        temporary_path.replace(destination)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def upsert_records(data: pd.DataFrame, rows: pd.DataFrame) -> tuple[pd.DataFrame, int, int]:
@@ -799,6 +869,134 @@ def upsert_records(data: pd.DataFrame, rows: pd.DataFrame) -> tuple[pd.DataFrame
     combined = ensure_body_scores(combined)
     combined = combined.sort_values("日付")
     return normalize_columns(combined), added, updated
+
+
+IMPORT_SECTION_COLUMNS = {
+    "weight": {"体重"},
+    "sleep": {"睡眠時間"},
+    "condition": {"体調"},
+    "steps": {"歩数", "歩数ランク"},
+    "notes": {"コメント"},
+    "mode": {"モード"},
+    "event_name": {"イベント名"},
+    "alcohol": {"飲酒", "飲酒内容", "飲酒レベル"},
+    "workout": {
+        "筋トレ有無",
+        "筋トレ内容",
+        "筋トレセッション数",
+        "筋トレ種目数",
+        "筋トレセット数",
+        "筋トレ時間(分)",
+        "構造化筋トレJSON",
+    },
+    "meals": {
+        "朝",
+        "昼",
+        "夜",
+        "間食",
+        "仕事中のドリンク",
+        "朝カロリー(kcal)",
+        "昼カロリー(kcal)",
+        "夜カロリー(kcal)",
+        "間食カロリー(kcal)",
+        "ドリンクカロリー(kcal)",
+        "構造化食事JSON",
+        "カロリー不明件数",
+        "推定摂取カロリー",
+        "タンパク質(g)",
+        "脂質(g)",
+        "炭水化物(g)",
+        "カロリー推定信頼度",
+    },
+    "nutrition": {
+        "推定摂取カロリー",
+        "タンパク質(g)",
+        "脂質(g)",
+        "炭水化物(g)",
+        "カロリー推定信頼度",
+    },
+}
+
+
+def build_import_rows(document: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    projected_rows: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+    knowledge = current_food_knowledge()
+    for record in document.get("records") or []:
+        nutrition = resolve_record_nutrition(
+            record,
+            lambda text, meal_type: resolve_food_text(text, meal_type, knowledge=knowledge),
+        )
+        projection = canonical_to_projection(record, nutrition)
+        projection["日付"] = normalize_date(projection["日付"])
+        projection["歩数ランク"] = rank_steps(projection.get("歩数"))
+        projection["カロリー推定信頼度"] = (
+            "high"
+            if nutrition["unknown_calorie_count"] == 0
+            else "medium"
+            if nutrition["unknown_calorie_count"] <= 2
+            else "low"
+        )
+        normalized = {column: "" if column in TEXT_COLUMNS else pd.NA if column in NULLABLE_NUMERIC_COLUMNS else 0 for column in COLUMNS}
+        normalized.update(projection)
+        projected_rows.append(fill_body_scores(normalized))
+        diagnostics.append(
+            {
+                "date": record["date"],
+                "meal_items": sum(
+                    len((nutrition.get("meals", {}).get(meal_type) or {}).get("items") or [])
+                    for meal_type in ["breakfast", "lunch", "dinner", "snacks", "drinks"]
+                ),
+                "unknown_calorie_count": nutrition["unknown_calorie_count"],
+                "provided_sections": set(record.get("_provided_sections") or []),
+            }
+        )
+    return projected_rows, diagnostics
+
+
+def apply_import_rows(
+    data: pd.DataFrame,
+    rows: list[dict[str, Any]],
+    diagnostics: list[dict[str, Any]],
+    conflict_policy: str,
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    if conflict_policy not in {"update", "replace", "cancel"}:
+        raise ValueError(f"Unsupported conflict policy: {conflict_policy}")
+    result = normalize_columns(data).copy()
+    result["_date_key"] = pd.to_datetime(result["日付"], errors="coerce").dt.strftime("%Y-%m-%d")
+    counts = {"added": 0, "updated": 0, "replaced": 0, "skipped": 0}
+    for row, diagnostic in zip(rows, diagnostics):
+        date_key = pd.to_datetime(row["日付"]).strftime("%Y-%m-%d")
+        matches = result.index[result["_date_key"] == date_key].tolist()
+        if not matches:
+            new_row = {column: row.get(column) for column in COLUMNS}
+            new_row["_date_key"] = date_key
+            new_frame = pd.DataFrame([new_row], columns=[*COLUMNS, "_date_key"])
+            result = new_frame if result.empty else pd.concat([result, new_frame], ignore_index=True)
+            counts["added"] += 1
+            continue
+        if conflict_policy == "cancel":
+            counts["skipped"] += 1
+            continue
+
+        index = matches[-1]
+        if conflict_policy == "replace":
+            for column in COLUMNS:
+                result.at[index, column] = row.get(column)
+            counts["replaced"] += 1
+        else:
+            columns = {"Import ID", "Import Schema Version"}
+            for section in diagnostic["provided_sections"]:
+                columns.update(IMPORT_SECTION_COLUMNS.get(section, set()))
+            for column in columns:
+                if column in row:
+                    result.at[index, column] = row.get(column)
+            recalculated = fill_body_scores(result.loc[index, COLUMNS].to_dict())
+            for column in BODY_SCORE_COLUMNS + ["Body Score種別"]:
+                result.at[index, column] = recalculated.get(column)
+            counts["updated"] += 1
+    result = result.drop(columns=["_date_key"]).sort_values("日付")
+    return normalize_columns(result), counts
 
 
 def predict_target_date(data: pd.DataFrame, target_weight: float) -> str:
@@ -985,72 +1183,223 @@ if submitted:
     except Exception as exc:
         st.error(f"保存に失敗しました: {exc}")
 
-st.header("ChatGPTログ貼り付け")
-st.caption("1日分のJSONを貼り付けると、records.csvへ保存します。同じ日付があれば上書きし、なければ追加します。JSON配列なら複数日分も保存できます。")
+st.header("BodyOS JSON Import")
+st.caption("正式Schema 1.0または旧BodyOS JSONを検証し、保存内容を確認してからrecords.csvへ反映します。")
 chatgpt_log = st.text_area(
     "JSON形式のログ",
     placeholder='{"日付":"2026-06-30","mode":"EVENT","event_name":"仕事後の飲み会","weight":84.2,"steps":3493,"sleep_hours":3.83,"condition":7,"workout":false,"alcohol":"あり","alcohol_detail":"ビール1杯、濃いめハイボール約7杯","meal":"魚料理中心、飲み会前にグリルチキン・紅鮭おにぎり・半熟ゆで卵","推定摂取カロリー":2081,"コメント":"Body Scoreは省略してアプリ側で自動計算"}',
     height=220,
 )
+import_state = streamlit_session_state()
 
-if st.button("ChatGPTログをCSVに追加"):
+if st.button("取り込み内容を確認"):
+    for key in (
+        "bodyos_import_document",
+        "bodyos_import_preview",
+        "bodyos_import_preview_fingerprint",
+        "bodyos_import_result",
+    ):
+        import_state.pop(key, None)
     try:
-        parsed = json.loads(chatgpt_log)
-        records = parsed if isinstance(parsed, list) else [parsed]
-        if not records:
-            raise ValueError("JSON配列が空です。1件以上のログを入れてください。")
-        if not all(isinstance(record, dict) for record in records):
-            raise ValueError("JSONはオブジェクト、またはオブジェクトの配列にしてください。")
-
-        normalized_records = []
-        validation_errors = []
-        for index, record in enumerate(records, start=1):
-            try:
-                normalized_records.append(normalize_record(record, record_number=index))
-            except RecordValidationError as exc:
-                validation_errors.extend(exc.errors)
-        if validation_errors:
-            raise RecordValidationError(validation_errors)
-
-        imported_rows = pd.DataFrame(normalized_records)
-        df, added_count, updated_count = upsert_records(df, imported_rows)
-        save_data(df)
-        food_summary = empty_food_resolution_summary()
-        try:
-            for imported_record in normalized_records:
-                imported_summary = remember_saved_meals(
-                    [
-                        (meal_type, str(imported_record.get(column, "")), {})
-                        for meal_type, column in [
-                            ("朝", "朝"),
-                            ("昼", "昼"),
-                            ("夜", "夜"),
-                            ("間食", "間食"),
-                            ("仕事中のドリンク", "仕事中のドリンク"),
-                        ]
-                    ],
-                    record_date=pd.to_datetime(imported_record["日付"]).date().isoformat(),
-                    operation_id=f"json-import:{pd.to_datetime(imported_record['日付']).date().isoformat()}",
-                    used_at=pd.to_datetime(imported_record["日付"]).isoformat(),
-                )
-                merge_food_resolution_summary(food_summary, imported_summary)
-        except Exception as exc:
-            st.warning(f"CSVは保存しましたが、Personal Food Masterの記録に失敗しました: {exc}")
-        st.success(
-            f"{len(imported_rows)}件のChatGPTログをrecords.csvへ保存しました。"
-            f"追加: {added_count}件 / 上書き: {updated_count}件"
-        )
-        if food_summary["encounter_count"]:
-            st.caption(f"Personal Food Masterに{food_summary['encounter_count']}件の食品遭遇を記録しました。")
-        render_food_import_summary(food_summary)
-    except json.JSONDecodeError as exc:
-        st.error(f"JSONの形式を確認してください: {exc}")
-    except RecordValidationError as exc:
-        st.error("読み取れなかった項目があります。")
+        document = parse_import_json(chatgpt_log)
+        existing_dates = set(pd.to_datetime(df["日付"], errors="coerce").dt.strftime("%Y-%m-%d").dropna())
+        preview = preview_import(document, existing_dates)
+        import_state["bodyos_import_document"] = document
+        import_state["bodyos_import_preview"] = preview
+        import_state["bodyos_import_preview_fingerprint"] = import_document_fingerprint(document)
+    except BodyOSImportValidationError as exc:
+        st.error("JSONを検証できませんでした。入力内容を確認してください。")
         for message in exc.errors:
             st.write(f"- {message}")
+        if exc.warnings:
+            with st.expander("変換時の警告"):
+                for message in exc.warnings:
+                    st.write(f"- {message}")
     except Exception as exc:
-        st.error(f"取り込みに失敗しました: {exc}")
+        LOGGER.exception("Import preview failed")
+        st.error("取り込み内容を確認できませんでした。JSON形式と日付を確認してください。")
+        with st.expander("開発者向け詳細"):
+            st.code(f"{type(exc).__name__}: {exc}")
+
+import_document = import_state.get("bodyos_import_document")
+import_preview = import_state.get("bodyos_import_preview")
+preview_fingerprint = import_state.get("bodyos_import_preview_fingerprint")
+preview_is_current = False
+if isinstance(import_document, dict) and isinstance(import_preview, dict) and str(chatgpt_log or "").strip():
+    try:
+        current_document = parse_import_json(chatgpt_log)
+        preview_is_current = (
+            import_document_fingerprint(current_document) == preview_fingerprint
+            and import_document_fingerprint(import_document) == preview_fingerprint
+        )
+    except BodyOSImportValidationError:
+        preview_is_current = False
+if isinstance(import_document, dict) and isinstance(import_preview, dict) and not preview_is_current:
+    import_state.pop("bodyos_import_result", None)
+    st.info("JSONがPreview後に変更されています。現在の内容をもう一度確認してください。")
+    import_document = None
+    import_preview = None
+
+if isinstance(import_document, dict) and isinstance(import_preview, dict):
+    st.subheader("Import Preview")
+    preview_rows = pd.DataFrame(import_preview["records"]).rename(
+        columns={
+            "date": "対象日",
+            "weight": "体重",
+            "sleep_hours": "睡眠",
+            "condition": "体調",
+            "steps": "歩数",
+            "meal_items": "食事件数",
+            "session_count": "セッション",
+            "exercise_count": "種目",
+            "set_count": "セット",
+            "duration_minutes": "時間(分)",
+            "conflict": "既存日",
+            "warning_count": "警告",
+        }
+    )
+    st.dataframe(preview_rows, use_container_width=True, hide_index=True)
+    st.caption(
+        f"日次 {import_preview['record_count']}件 / 食品 {import_preview['meal_item_count']}件 / "
+        f"筋トレ {import_preview['workout_session_count']}セッション / "
+        f"種目 {import_preview['exercise_count']}件 / セット {import_preview['set_count']}件"
+    )
+    if import_preview["warnings"]:
+        st.warning(f"{len(import_preview['warnings'])}件の確認事項があります。保存は禁止せず、内容確認を推奨します。")
+        with st.expander("警告を確認"):
+            for message in import_preview["warnings"]:
+                st.write(f"- {message}")
+
+    conflict_label = st.radio(
+        "同じ日付が保存済みの場合",
+        ["更新（入力されたセクションのみ）", "置換（1日分を入れ替え）", "中止（保存済みの日をスキップ）"],
+        index=0,
+        horizontal=True,
+    )
+    conflict_policy = {
+        "更新（入力されたセクションのみ）": "update",
+        "置換（1日分を入れ替え）": "replace",
+        "中止（保存済みの日をスキップ）": "cancel",
+    }[conflict_label]
+
+    if st.button("確認した内容を保存", type="primary"):
+        started_at = time.monotonic()
+        operation_id = operation_import_id()
+        try:
+            projected_rows, import_diagnostics = build_import_rows(import_document)
+            existing_dates = set(pd.to_datetime(df["日付"], errors="coerce").dt.strftime("%Y-%m-%d").dropna())
+            updated_data, save_counts = apply_import_rows(
+                df,
+                projected_rows,
+                import_diagnostics,
+                conflict_policy,
+            )
+            save_data(updated_data)
+            df = updated_data
+
+            food_summary = empty_food_resolution_summary()
+            try:
+                for canonical_record, imported_record in zip(import_document["records"], projected_rows):
+                    if conflict_policy == "cancel" and canonical_record["date"] in existing_dates:
+                        continue
+                    imported_summary = remember_saved_meals(
+                        [
+                            (meal_type, str(imported_record.get(column, "")), {})
+                            for meal_type, column in [
+                                ("朝", "朝"),
+                                ("昼", "昼"),
+                                ("夜", "夜"),
+                                ("間食", "間食"),
+                                ("仕事中のドリンク", "仕事中のドリンク"),
+                            ]
+                        ],
+                        record_date=canonical_record["date"],
+                        operation_id=f"json-import:{imported_record['Import ID']}",
+                        used_at=f"{canonical_record['date']}T00:00:00",
+                    )
+                    merge_food_resolution_summary(food_summary, imported_summary)
+            except Exception as exc:
+                food_summary["save_failed"] += 1
+                LOGGER.warning("Food Knowledge persistence failed after daily save: %s", type(exc).__name__)
+
+            unknown_count = sum(item["unknown_calorie_count"] for item in import_diagnostics)
+            result = {
+                **save_counts,
+                "daily_count": len(projected_rows) - save_counts["skipped"],
+                "meal_item_count": import_preview["meal_item_count"],
+                "workout_session_count": import_preview["workout_session_count"],
+                "exercise_count": import_preview["exercise_count"],
+                "set_count": import_preview["set_count"],
+                "unknown_calorie_count": unknown_count,
+                "food_summary": food_summary,
+            }
+            import_state["bodyos_import_result"] = result
+            LOGGER.info(
+                json.dumps(
+                    structured_import_log(
+                        import_id=operation_id,
+                        user_id=PERSONAL_FOOD_USER_ID,
+                        records=import_document["records"],
+                        warning_count=len(import_preview["warnings"]) + unknown_count,
+                        section="complete",
+                        started_at=started_at,
+                    ),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
+            st.rerun()
+        except Exception as exc:
+            LOGGER.exception(
+                json.dumps(
+                    structured_import_log(
+                        import_id=operation_id,
+                        user_id=PERSONAL_FOOD_USER_ID,
+                        records=import_document.get("records") or [],
+                        warning_count=len(import_preview.get("warnings") or []),
+                        section="save",
+                        started_at=started_at,
+                        error_location=type(exc).__name__,
+                    ),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
+            st.error("保存できませんでした。records.csvへの反映は完了していません。")
+            with st.expander("開発者向け詳細"):
+                st.code(f"{type(exc).__name__}: {exc}")
+
+import_result = import_state.get("bodyos_import_result")
+if isinstance(import_result, dict):
+    st.success(
+        f"日次 {import_result['daily_count']}件を保存しました。"
+        f"追加 {import_result['added']}件 / 更新 {import_result['updated']}件 / "
+        f"置換 {import_result['replaced']}件 / スキップ {import_result['skipped']}件"
+    )
+    st.write(
+        f"✓ 日次基本情報 {import_result['daily_count']}件  \n"
+        f"✓ 食品 {import_result['meal_item_count']}件  \n"
+        f"✓ 筋トレ {import_result['workout_session_count']}セッション  \n"
+        f"✓ 種目 {import_result['exercise_count']}件  \n"
+        f"✓ セット {import_result['set_count']}件"
+    )
+    if import_result["unknown_calorie_count"]:
+        st.warning(f"カロリー不明 {import_result['unknown_calorie_count']}件。既知分だけを合計しています。")
+    render_food_import_summary(import_result["food_summary"])
+
+if not df.empty:
+    st.subheader("BodyOS JSON Export")
+    export_dates = pd.to_datetime(df["日付"], errors="coerce").dropna().dt.strftime("%Y-%m-%d").tolist()
+    export_date = st.selectbox("エクスポート対象日", export_dates, index=max(len(export_dates) - 1, 0))
+    export_match = df[pd.to_datetime(df["日付"], errors="coerce").dt.strftime("%Y-%m-%d") == export_date]
+    if not export_match.empty:
+        export_payload = export_projection(export_match.iloc[-1].to_dict())
+        st.download_button(
+            "正式Schema 1.0 JSONをダウンロード",
+            json.dumps(export_payload, ensure_ascii=False, indent=2),
+            file_name=f"bodyos-{export_date}.json",
+            mime="application/json",
+        )
 
 if not df.empty:
     st.header("メンテナンス")

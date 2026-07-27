@@ -1,0 +1,263 @@
+{
+  "schema_version": "1.0",
+  "date": "2026-07-26",
+  "weight": 83.2,
+  "sleep": 8,
+  "condition": 8,
+  "steps": 11786,
+  "meals": {
+    "breakfast": [
+      {
+        "name": "inゼリー エネルギー マスカット味",
+        "quantity": {
+          "value": 1,
+          "unit": "個"
+        },
+        "calories_kcal": 180
+      },
+      {
+        "name": "SAVAS BIO PRO ヨーグルト味",
+        "quantity": {
+          "value": 1,
+          "unit": "本"
+        },
+        "calories_kcal": 118,
+        "protein_g": 15
+      }
+    ],
+    "snack": [
+      {
+        "name": "ドトール スイートポテト",
+        "quantity": {
+          "value": 1,
+          "unit": "個"
+        },
+        "calories_kcal": 130,
+        "protein_g": 1.5,
+        "fat_g": 3.1,
+        "carbohydrates_g": 23.9
+      },
+      {
+        "name": "コーヒー",
+        "quantity": {
+          "value": 1,
+          "unit": "杯"
+        },
+        "calories_kcal": null
+      },
+      {
+        "name": "ジェラート",
+        "quantity": {
+          "value": 1,
+          "unit": "個"
+        },
+        "calories_kcal": null
+      }
+    ],
+    "lunch": [
+      {
+        "name": "ピザ",
+        "quantity": {
+          "value": null,
+          "unit": "シェア"
+        },
+        "notes": "2枚を2人でシェア",
+        "calories_kcal": null
+      },
+      {
+        "name": "グリーンサラダ",
+        "quantity": {
+          "value": null,
+          "unit": "シェア"
+        },
+        "calories_kcal": null
+      }
+    ],
+    "dinner": [
+      {
+        "name": "チキンラーメン",
+        "quantity": {
+          "value": 1,
+          "unit": "袋"
+        },
+        "calories_kcal": null
+      },
+      {
+        "name": "卵",
+        "quantity": {
+          "value": 1,
+          "unit": "個"
+        },
+        "calories_kcal": null
+      },
+      {
+        "name": "納豆",
+        "quantity": {
+          "value": 1,
+          "unit": "パック"
+        },
+        "calories_kcal": null
+      },
+      {
+        "name": "めかぶ",
+        "quantity": {
+          "value": 1,
+          "unit": "パック"
+        },
+        "calories_kcal": null
+      }
+    ]
+  },
+  "alcohol": {
+    "consumed": false
+  },
+  "workout": {
+    "performed": true,
+    "program_name": "Week3 Day2【Hypertrophy】",
+    "workout_type": "hypertrophy",
+    "duration_minutes": 75,
+    "exercises": [
+      {
+        "name": "インクラインダンベルプレス",
+        "equipment": "dumbbell",
+        "sets": [
+          {
+            "weight_kg": 32,
+            "reps": 10,
+            "completed": true
+          },
+          {
+            "weight_kg": 32,
+            "reps": 10,
+            "completed": true
+          },
+          {
+            "weight_kg": 32,
+            "reps": 9,
+            "completed": true
+          },
+          {
+            "weight_kg": 32,
+            "reps": 8,
+            "completed": true
+          }
+        ]
+      },
+      {
+        "name": "ラットプルダウン",
+        "equipment": "machine",
+        "sets": [
+          {
+            "weight_kg": 66,
+            "reps": 12,
+            "completed": true
+          },
+          {
+            "weight_kg": 66,
+            "reps": 12,
+            "completed": true
+          },
+          {
+            "weight_kg": 66,
+            "reps": 12,
+            "completed": true
+          },
+          {
+            "weight_kg": 66,
+            "reps": 11,
+            "completed": true
+          }
+        ]
+      },
+      {
+        "name": "レッグプレス",
+        "equipment": "machine",
+        "sets": [
+          {
+            "weight_kg": 273,
+            "reps": 10,
+            "completed": true
+          },
+          {
+            "weight_kg": 273,
+            "reps": 10,
+            "completed": true
+          },
+          {
+            "weight_kg": 273,
+            "reps": 10,
+            "completed": true
+          }
+        ]
+      },
+      {
+        "name": "ダンベルショルダープレス",
+        "equipment": "dumbbell",
+        "sets": [
+          {
+            "weight_kg": 28,
+            "reps": 12,
+            "completed": true
+          },
+          {
+            "weight_kg": 28,
+            "reps": 12,
+            "completed": true
+          },
+          {
+            "weight_kg": 28,
+            "reps": 12,
+            "completed": true
+          }
+        ]
+      },
+      {
+        "name": "サイドレイズ",
+        "equipment": "dumbbell",
+        "sets": [
+          {
+            "weight_kg": 14,
+            "reps": 15,
+            "completed": true
+          },
+          {
+            "weight_kg": 14,
+            "reps": 15,
+            "completed": true
+          },
+          {
+            "weight_kg": 14,
+            "reps": 15,
+            "completed": true
+          }
+        ]
+      },
+      {
+        "name": "ダンベルカール",
+        "equipment": "dumbbell",
+        "sets": [
+          {
+            "weight_kg": 12,
+            "reps": 10,
+            "completed": true
+          },
+          {
+            "weight_kg": 12,
+            "reps": 10,
+            "completed": true
+          },
+          {
+            "weight_kg": 12,
+            "reps": 10,
+            "completed": true
+          }
+        ],
+        "notes": "EZバー使用不可のため代替"
+      }
+    ]
+  },
+  "notes": [
+    "1週間ぶりのジム再開",
+    "彼女と江戸川橋のnove.でランチ"
+  ]
+}

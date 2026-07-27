@@ -4,55 +4,62 @@
 
 `records.csv` is the current source of truth. All import, dashboard, scoring, and recalculation logic must preserve compatibility with existing CSV records.
 
-`dashboard.py` is a rendering layer only. It may derive display columns such as labels, rolling averages, and chart helper fields at runtime, but it must not introduce required CSV columns or change the stored record contract.
+`dashboard.py` is a rendering layer only. `dashboard_aggregation.py` is the common stored-value projection for metrics, meals, display text, and Workout counts. Rendering code must not independently read alternate persistence shapes or recalculate calories, PFC, or structured Workout counts.
 
 Raw user records are immutable by default. New parsing, scoring, calorie, or display rules must not silently rewrite historical rows during ordinary app launch. Corrected rules apply to new records, new imports, explicit edits, and records explicitly re-imported by the user. Historical migration requires a separate user-confirmed workflow.
 
 ## Standard JSON Import Shape
 
-Future ChatGPT logs should move toward this shape:
+The normative contract is `schemas/bodyos-daily-log.schema.json`; the human-readable guide is `docs/bodyos-import-schema.md`. New payloads require `schema_version: "1.0"`. Legacy payloads without a version use the compatibility adapter and emit a warning.
 
 ```json
 {
   "schema_version": "1.0",
-  "bodyos_standard_version": "1.0",
   "date": "2026-07-06",
   "mode": "NORMAL",
   "event_name": "",
   "weight": 85.2,
   "steps": 8200,
-  "sleep_hours": 7.5,
-  "condition": "良い",
+  "sleep": {"hours": 7.5},
+  "condition": 8,
   "meals": {
-    "breakfast": "プロテイン、トマトジュース",
-    "lunch": "うどん、とり天",
-    "dinner": "鶏むね肉、白米、サラダ",
-    "snacks": "オイコス"
+    "breakfast": [{"name": "プロテイン"}],
+    "lunch": [{"name": "うどん"}, {"name": "とり天"}],
+    "dinner": [{"name": "鶏むね肉"}, {"name": "白米"}, {"name": "サラダ"}],
+    "snacks": [{"name": "オイコス"}],
+    "drinks": []
   },
-  "drinks": "コーヒー、カフェラテ",
   "workout": {
     "performed": true,
-    "menu": "ベンチプレス 90kg 5,6,6,4"
+    "program_name": "Week3 Day2",
+    "duration_minutes": 75,
+    "exercises": [
+      {
+        "name": "ベンチプレス",
+        "sets": [
+          {"weight_kg": 90, "reps": 5, "completed": true}
+        ]
+      }
+    ]
   },
-  "coach_comment": "歩数と食事は良好。明日は睡眠を増やす。"
+  "notes": "歩数と食事は良好。"
 }
 ```
 
 ## Core Fields
 
 - `schema_version`: Version of the import payload shape.
-- `bodyos_standard_version`: Version of BodyOS semantic rules.
 - `date`: Record date.
 - `mode`: `NORMAL`, `EVENT`, `RECOVERY`, or `BULK`.
 - `event_name`: Event label when applicable.
 - `weight`: Body weight.
 - `steps`: Daily steps.
-- `sleep_hours`: Sleep duration.
+- `sleep.hours`: Sleep duration.
 - `condition`: Physical or mental condition.
 - `meals`: Meal text grouped by breakfast, lunch, dinner, and snacks.
-- `drinks`: Workday or other drinks.
-- `workout`: Training performed and details.
-- `coach_comment`: Coaching note or daily comment.
+- `meals.drinks`: Workday or other drinks.
+- `workout`: Training session, exercises, and ordered sets.
+- `notes`: User note.
 
 ## Compatibility Rules
 
@@ -63,6 +70,11 @@ Future ChatGPT logs should move toward this shape:
 - Estimated calories are approximate and should be presented as estimates.
 - Manual calories override automatic estimates if available.
 - New CSV columns should be optional unless a migration PR explicitly changes the schema.
+- PR13 adds optional structured/aggregate columns. They are populated only for new, edited, or explicitly re-imported rows; ordinary launch does not rewrite history.
+- Dashboard data flows through `records.csv` -> Canonical Projection -> Dashboard Projection -> UI. Structured meal/workout JSON is preferred when present; legacy columns remain a read-compatible fallback.
+- Dashboard meal calories come from each persisted structured meal section. Explicit item nutrition is resolved before Food Resolver nutrition during import; unresolved item calories remain null and are shown as partial rather than silently becoming zero.
+- `snacks` is the canonical meal key. The singular compatibility key `snack` is normalized at import and Dashboard Projection boundaries.
+- Display Projection converts null, NaN, `None`, empty strings, and empty arrays to `—` or `なし` as appropriate. Array notes are joined as natural text; Python collection representations must not reach the user interface.
 - Existing records must remain readable after normalization.
 - Missing body weight values are not real zero weights. Dashboard averages, rolling averages, charts, and predictions must ignore missing weight values.
 - Meal text that clearly means no meal must be treated as 0 kcal and must not receive fallback calories.
@@ -167,9 +179,21 @@ The derived percentage is bounded between 0% and 100%. Missing or not-applicable
 analyze_workout(record: dict, history: list[dict] | None = None) -> dict
 ```
 
-The function reads existing workout text fields such as `筋トレ内容`, `workout.menu`, and `workout_detail`. It must not change the stored CSV schema.
+The function reads existing workout text fields such as `筋トレ内容`, `workout.menu`, and `workout_detail`. PR13 formally persists `構造化筋トレJSON` plus optional session/exercise/set counts while retaining the text compatibility field.
 
-The result may include parsed exercises, PR candidates, next targets, progression context, confidence, and a short summary. Workout parsing is approximate and should preserve the raw workout text as the source of truth.
+The result may include parsed exercises, PR candidates, next targets, progression context, confidence, and a short summary. Workout Intelligence remains unchanged; structured history is a persistence/display contract and does not add advanced analysis.
+
+## PR13 Optional CSV Projection
+
+The following optional columns are written only for new or explicitly updated records:
+
+- `タンパク質(g)`, `脂質(g)`, `炭水化物(g)`
+- `カロリー不明件数`
+- `筋トレセッション数`, `筋トレ種目数`, `筋トレセット数`, `筋トレ時間(分)`
+- `構造化食事JSON`, `構造化筋トレJSON`
+- `Import ID`, `Import Schema Version`
+
+Daily identity remains the calendar date in the current single-user CSV bridge. The formal future identity is owner plus date. Import conflict behavior is explicit: update supplied sections, replace the day, or skip the existing day.
 
 ## BodyOS Standard v1.0
 

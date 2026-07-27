@@ -23,11 +23,11 @@ from food_repository_factory import (
 from food_resolver import build_food_knowledge_snapshot, resolve_food_text
 from personal_food_master import remember_food_encounters_with_summary
 from scripts.migrate_food_knowledge_to_supabase import build_migration_report
-from supabase_food_master_repository import SupabaseFoodMasterRepository, SupabaseRestClient
+from supabase_food_master_repository import EXPECTED_SCHEMA_VERSION, SupabaseFoodMasterRepository, SupabaseRestClient
 
 
 class FakeSupabaseClient:
-    def __init__(self, *, schema_version: str = "20260720.2") -> None:
+    def __init__(self, *, schema_version: str = EXPECTED_SCHEMA_VERSION) -> None:
         self.schema_version = schema_version
         self.foods: dict[str, dict] = {}
         self.aliases: dict[tuple[str, str], dict] = {}

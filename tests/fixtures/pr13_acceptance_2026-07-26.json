@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.0",
+  "date": "2026-07-26",
+  "weight": 83.2,
+  "sleep": {
+    "hours": 8
+  },
+  "condition": 8,
+  "steps": 11786,
+  "meals": {
+    "breakfast": [
+      {
+        "name": "朝食セット",
+        "quantity": 1,
+        "unit": "食",
+        "nutrition": {
+          "calories_kcal": 400,
+          "protein_g": 30,
+          "fat_g": 12,
+          "carbs_g": 45,
+          "basis": "total"
+        }
+      }
+    ],
+    "snacks": [
+      {
+        "name": "プロテイン",
+        "quantity": 1,
+        "unit": "本",
+        "nutrition": {
+          "calories_kcal": 200,
+          "protein_g": 25,
+          "fat_g": 3,
+          "carbs_g": 18,
+          "basis": "per_item"
+        }
+      }
+    ],
+    "lunch": [
+      {
+        "name": "昼食セット",
+        "quantity": 1,
+        "unit": "食",
+        "nutrition": {
+          "calories_kcal": 700,
+          "protein_g": 40,
+          "fat_g": 20,
+          "carbs_g": 85,
+          "basis": "total"
+        }
+      }
+    ],
+    "dinner": [
+      {
+        "name": "夕食セット",
+        "quantity": 1,
+        "unit": "食",
+        "nutrition": {
+          "calories_kcal": 900,
+          "protein_g": 50,
+          "fat_g": 30,
+          "carbs_g": 100,
+          "basis": "total"
+        }
+      }
+    ],
+    "drinks": []
+  },
+  "alcohol": {
+    "consumed": false,
+    "detail": null,
+    "level": null
+  },
+  "workout": {
+    "performed": true,
+    "program_name": "Week3 Day2【Hypertrophy】",
+    "workout_type": "hypertrophy",
+    "duration_minutes": 75,
+    "exercises": [
+      {
+        "name": "インクラインDBプレス",
+        "equipment": "dumbbell",
+        "sets": [
+          {"weight_kg": 32, "reps": 10, "completed": true},
+          {"weight_kg": 32, "reps": 10, "completed": true},
+          {"weight_kg": 32, "reps": 9, "completed": true},
+          {"weight_kg": 32, "reps": 8, "completed": true}
+        ]
+      },
+      {
+        "name": "ラットプルダウン",
+        "equipment": "cable",
+        "sets": [
+          {"weight_kg": 66, "reps": 12, "completed": true},
+          {"weight_kg": 66, "reps": 12, "completed": true},
+          {"weight_kg": 66, "reps": 12, "completed": true},
+          {"weight_kg": 66, "reps": 11, "completed": true}
+        ]
+      },
+      {
+        "name": "レッグプレス",
+        "equipment": "machine",
+        "sets": [
+          {"weight_kg": 273, "reps": 10, "completed": true},
+          {"weight_kg": 273, "reps": 10, "completed": true},
+          {"weight_kg": 273, "reps": 10, "completed": true}
+        ]
+      },
+      {
+        "name": "DBショルダープレス",
+        "equipment": "dumbbell",
+        "sets": [
+          {"weight_kg": 28, "reps": 12, "completed": true},
+          {"weight_kg": 28, "reps": 12, "completed": true},
+          {"weight_kg": 28, "reps": 12, "completed": true}
+        ]
+      },
+      {
+        "name": "サイドレイズ",
+        "equipment": "dumbbell",
+        "sets": [
+          {"weight_kg": 14, "reps": 15, "completed": true},
+          {"weight_kg": 14, "reps": 15, "completed": true},
+          {"weight_kg": 14, "reps": 15, "completed": true}
+        ]
+      },
+      {
+        "name": "DBカール",
+        "equipment": "dumbbell",
+        "sets": [
+          {"weight_kg": 12, "reps": 10, "completed": true},
+          {"weight_kg": 12, "reps": 10, "completed": true},
+          {"weight_kg": 12, "reps": 10, "completed": true}
+        ]
+      }
+    ]
+  },
+  "notes": "PR13 acceptance fixture"
+}

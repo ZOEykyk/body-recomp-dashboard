@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from copy import deepcopy
-
 import streamlit as st
 
+from food_aliases import normalize_food_name
 from food_master_repository import FoodMasterRepository
 from personal_food_master import link_candidate_to_food, personal_food_source_selection, promote_food
 
@@ -21,13 +20,16 @@ def _food_title(food: dict) -> str:
 
 
 def _add_alias(repository: FoodMasterRepository, user_id: str, food: dict, alias: str) -> None:
-    value = alias.strip()
+    value = normalize_food_name(alias)
     if not value:
         return
-    updated = deepcopy(food)
-    updated["aliases"] = sorted(set(updated.get("aliases") or []) | {value})
-    updated["updated_by"] = "user"
-    repository.upsert_food(user_id, updated)
+    repository.add_alias(
+        user_id,
+        str(food["food_id"]),
+        value,
+        source="manual",
+        approved_by_user=True,
+    )
 
 
 def _food_summary(food: dict) -> None:
@@ -62,6 +64,16 @@ def render_food_master_management(repository: FoodMasterRepository, user_id: str
         if not foods:
             st.caption("新しい記録を保存すると、食品遭遇がここに蓄積されます。")
             return
+
+        st.subheader("Alias検索")
+        alias_query = st.text_input("登録済みAlias", key="food-master-alias-search")
+        if alias_query:
+            matches = repository.find_by_alias(user_id, normalize_food_name(alias_query).lower())
+            if matches:
+                for match in matches:
+                    st.write(f"- {_food_title(match)}")
+            else:
+                st.caption("一致する承認済みAliasはありません。")
 
         st.subheader("Active Foods")
         if not active_foods:

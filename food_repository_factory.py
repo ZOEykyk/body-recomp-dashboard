@@ -45,6 +45,19 @@ class UnavailableFoodMasterRepository(FoodMasterRepository):
         self._write_error()
         return {}
 
+    def add_alias(
+        self,
+        user_id: str,
+        food_id: str,
+        alias: str,
+        *,
+        source: str = "manual",
+        ai_model: str | None = None,
+        approved_by_user: bool = True,
+    ) -> dict[str, Any]:
+        self._write_error()
+        return {}
+
     def get_encounter_by_idempotency(self, user_id: str, idempotency_key: str) -> dict[str, Any] | None:
         return None
 
@@ -121,6 +134,27 @@ class FallbackFoodMasterRepository(FoodMasterRepository):
 
     def append_encounter(self, user_id: str, encounter: dict[str, Any]) -> dict[str, Any]:
         return self._call("append_encounter", user_id, encounter, write=True)
+
+    def add_alias(
+        self,
+        user_id: str,
+        food_id: str,
+        alias: str,
+        *,
+        source: str = "manual",
+        ai_model: str | None = None,
+        approved_by_user: bool = True,
+    ) -> dict[str, Any]:
+        return self._call(
+            "add_alias",
+            user_id,
+            food_id,
+            alias,
+            source=source,
+            ai_model=ai_model,
+            approved_by_user=approved_by_user,
+            write=True,
+        )
 
     def get_encounter_by_idempotency(self, user_id: str, idempotency_key: str) -> dict[str, Any] | None:
         return self._call("get_encounter_by_idempotency", user_id, idempotency_key)

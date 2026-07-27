@@ -12,8 +12,10 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from bodyos_standard import SCORE_COMPONENTS, SCORE_COMPONENT_MAXIMA
+from dashboard_aggregation import project_dashboard_record
 from data_integrity import format_optional_number, format_weight_kg, valid_weight_series
 from nutrition_intelligence import analyze_nutrition
+from workout_history import workout_history_rows
 from workout_intelligence import analyze_workout
 
 X_AXIS_LABEL_ANGLE = -40
@@ -700,9 +702,13 @@ def render_workout_intelligence(latest: pd.Series, data: pd.DataFrame) -> None:
         """
     ).strip()
     render_html_section(markup, fallback_height=420)
+    structured_history = workout_history_rows(data)
+    if structured_history:
+        with st.expander("筋トレ履歴", expanded=False):
+            st.dataframe(pd.DataFrame(structured_history), use_container_width=True, hide_index=True)
 
 
-def render_body_score_summary(latest: pd.Series, chart_df: pd.DataFrame) -> None:
+def render_body_score_summary(latest: dict[str, Any], chart_df: pd.DataFrame) -> None:
     st.subheader("Body Score")
     markup = textwrap.dedent(
         f"""
@@ -710,9 +716,13 @@ def render_body_score_summary(latest: pd.Series, chart_df: pd.DataFrame) -> None
         {body_score_card_styles()}
         <div class="bodyos-component-section bodyos-body-score-summary">
           {body_score_metric_cards([
-              {"label": "最新Body Score", "value": f"{int(latest['Body Score'])}点", "caption": score_label(latest["Body Score"])},
+              {
+                  "label": "最新Body Score",
+                  "value": format_metric_number(latest["body_score"], "点"),
+                  "caption": score_label(latest["body_score"]) if latest["body_score"] is not None else "—",
+              },
               {"label": "7日平均Body Score", "value": f"{chart_df['7日平均Body Score'].iloc[-1]:.1f}点"},
-              {"label": "最新モード", "value": str(latest["モード"])},
+              {"label": "最新モード", "value": latest["mode"]},
           ])}
         </div>
         """
@@ -720,7 +730,7 @@ def render_body_score_summary(latest: pd.Series, chart_df: pd.DataFrame) -> None
     render_html_section(markup, fallback_height=420)
 
 
-def render_todays_metrics(latest: pd.Series, chart_df: pd.DataFrame, this_week: pd.DataFrame) -> None:
+def render_todays_metrics(latest: dict[str, Any], chart_df: pd.DataFrame, this_week: pd.DataFrame) -> None:
     st.subheader("今日のメトリクス")
     this_week_average_weight = valid_weight_series(this_week["体重"]).mean() if not this_week.empty else pd.NA
     markup = textwrap.dedent(
@@ -728,15 +738,28 @@ def render_todays_metrics(latest: pd.Series, chart_df: pd.DataFrame, this_week: 
         {score_component_styles()}
         <div class="bodyos-component-section">
           {dashboard_metric_cards([
-              {"label": "体重", "value": format_weight_kg(latest["体重"])},
-              {"label": "睡眠", "value": format_metric_number(latest.get("睡眠時間"), "h")},
-              {"label": "歩数", "value": format_metric_number(latest.get("歩数"), "歩")},
-              {"label": "カロリー", "value": format_metric_number(latest.get("推定摂取カロリー"), "kcal")},
+              {"label": "体重", "value": format_weight_kg(latest["weight_kg"])},
+              {"label": "睡眠", "value": format_metric_number(latest["sleep_hours"], "h")},
+              {"label": "歩数", "value": format_metric_number(latest["steps"], "歩")},
+              {
+                  "label": "カロリー",
+                  "value": format_metric_number(latest["calories_kcal"], "kcal"),
+                  "caption": (
+                      f"不明 {latest['unknown_calorie_count']}件"
+                      if latest["unknown_calorie_count"]
+                      else "保存済み実績"
+                  ),
+              },
               {
                   "label": "タンパク質",
-                  "value": format_component_score(
-                      latest.get("タンパク質スコア"),
-                      SCORE_COMPONENT_MAXIMA["タンパク質スコア"],
+                  "value": format_metric_number(latest["protein_g"], "g"),
+                  "caption": (
+                      format_component_score(
+                          latest["component_scores"]["タンパク質スコア"],
+                          SCORE_COMPONENT_MAXIMA["タンパク質スコア"],
+                      )
+                      if latest["protein_g"] is None
+                      else "保存済み実績"
                   ),
               },
               {"label": "今週の平均体重", "value": format_optional_number(this_week_average_weight, "kg")},
@@ -820,7 +843,7 @@ def render_nutrition_intelligence(
                 {
                     "項目": name,
                     "状態": item["status"],
-                    "実績": item["actual"] if item["actual"] is not None else "—",
+                    "実績": str(item["actual"]) if item["actual"] is not None else "—",
                     "目標": str(item["target"]),
                     "点": f"{item['points']} / {item['max_points']}" if item["available"] else "—",
                 }
@@ -855,33 +878,20 @@ def render_core_trend_charts(chart_df: pd.DataFrame) -> None:
     st.altair_chart(apply_dashboard_axis_config(daily_bar_chart(chart_df, "歩数", "歩数", "#4c78a8")), use_container_width=True)
 
 
-def render_recent_details(latest: pd.Series) -> None:
+def render_recent_details(projection: dict[str, Any]) -> None:
     st.subheader("直近の食事・筋トレ内容")
-    st.write(f"朝: {latest.get('朝', '')} / {int(latest.get('朝カロリー(kcal)', 0)):,}kcal")
-    st.write(f"昼: {latest.get('昼', '')} / {int(latest.get('昼カロリー(kcal)', 0)):,}kcal")
-    st.write(f"夜: {latest.get('夜', '')} / {int(latest.get('夜カロリー(kcal)', 0)):,}kcal")
-    st.write(f"間食: {latest.get('間食', '')} / {int(latest.get('間食カロリー(kcal)', 0)):,}kcal")
-    st.write(
-        f"仕事中のドリンク: {latest.get('仕事中のドリンク', '')} / "
-        f"{int(latest.get('ドリンクカロリー(kcal)', 0)):,}kcal"
-    )
-    st.write(f"カロリー推定信頼度: {latest.get('カロリー推定信頼度', '')}")
-    st.write(f"筋トレ: {latest.get('筋トレ有無', '')} / {latest.get('筋トレ内容', '')}")
-    st.write(
-        f"モード: {latest.get('モード', '')} / イベント名: {latest.get('イベント名', '')} / "
-        f"Body Score: {int(latest.get('Body Score', 0))}"
-    )
-    st.write(
-        f"体調: {latest.get('体調', '')} / 飲酒: {latest.get('飲酒', '')} "
-        f"/ 飲酒内容: {latest.get('飲酒内容', '')} / 採点: {latest.get('今日の採点', 0)}"
-    )
-    st.write(f"コメント: {latest.get('コメント', '')}")
+    for line in projection["recent_detail_lines"]:
+        st.write(line)
 
 
 def render_history_table(chart_df: pd.DataFrame) -> None:
     st.subheader("記録一覧")
     history_df = chart_df.copy()
     history_df["体重"] = history_df["体重表示"]
+    for index, row in history_df.iterrows():
+        projection = project_dashboard_record(row)
+        for column, value in projection["history_display"].items():
+            history_df.at[index, column] = value
     history_columns = [
         "日付表示",
         "Body Score",
@@ -892,11 +902,19 @@ def render_history_table(chart_df: pd.DataFrame) -> None:
         "歩数",
         "歩数ランク",
         "睡眠時間",
+        "推定摂取カロリー",
+        "カロリー不明件数",
         "筋トレ有無",
+        "筋トレセッション数",
+        "筋トレ種目数",
+        "筋トレセット数",
         "飲酒",
         "飲酒内容",
         "コメント",
     ]
+    for column in history_columns:
+        if column not in history_df.columns:
+            history_df[column] = "—"
     st.dataframe(history_df[history_columns], use_container_width=True, hide_index=True)
 
 
@@ -910,6 +928,7 @@ def render_dashboard(
 ) -> None:
     data = data.sort_values("日付")
     latest = data.iloc[-1]
+    latest_projection = project_dashboard_record(latest)
     chart_df = add_daily_display_columns(data)
     chart_df["有効体重"] = valid_weight_series(chart_df["体重"])
     chart_df["体重表示"] = chart_df["体重"].apply(format_weight_kg)
@@ -920,8 +939,8 @@ def render_dashboard(
     week_start = today - pd.Timedelta(days=today.weekday())
     this_week = chart_df[pd.to_datetime(chart_df["日付"], errors="coerce") >= week_start]
     st.header("ダッシュボード")
-    render_body_score_summary(latest, chart_df)
-    render_todays_metrics(latest, chart_df, this_week)
+    render_body_score_summary(latest_projection, chart_df)
+    render_todays_metrics(latest_projection, chart_df, this_week)
     render_nutrition_intelligence(latest, data, food_knowledge)
     render_workout_intelligence(latest, data)
     render_core_trend_charts(chart_df)
@@ -931,7 +950,7 @@ def render_dashboard(
     st.markdown("**76kg到達予測**")
     st.info(predict_target_date(data, target_weight))
     render_score_component_overview(chart_df)
-    render_recent_details(latest)
+    render_recent_details(latest_projection)
 
     csv = data.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
     st.download_button("CSVダウンロード", csv, "body_recomp_records.csv", "text/csv")

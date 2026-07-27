@@ -7,6 +7,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
+from food_aliases import normalize_food_name
 from food_master_models import normalized_identity_key
 from food_master_models import FOOD_MASTER_VERSION, utc_now
 
@@ -88,13 +89,73 @@ class FoodMasterRepository(ABC):
         return [food for food in self.list_foods(user_id) if normalized_identity_key(food) == key]
 
     def find_by_alias(self, user_id: str, normalized_alias: str) -> list[dict[str, Any]]:
-        expected = " ".join(str(normalized_alias or "").lower().split())
-        return [
-            food
-            for food in self.list_foods(user_id)
-            if expected
-            and expected in {" ".join(str(alias).lower().split()) for alias in food.get("aliases") or []}
+        expected = normalize_food_name(normalized_alias).lower()
+        matches = []
+        for food in self.list_foods(user_id):
+            metadata = {
+                normalize_food_name(item.get("alias")).lower(): item
+                for item in food.get("alias_metadata") or []
+                if isinstance(item, dict)
+            }
+            aliases = {
+                normalize_food_name(alias).lower()
+                for alias in food.get("aliases") or []
+                if (
+                    normalize_food_name(alias).lower() not in metadata
+                    or metadata[normalize_food_name(alias).lower()].get("approved_by_user") is True
+                )
+            }
+            if expected and expected in aliases:
+                matches.append(food)
+        return matches
+
+    def add_alias(
+        self,
+        user_id: str,
+        food_id: str,
+        alias: str,
+        *,
+        source: str = "manual",
+        ai_model: str | None = None,
+        approved_by_user: bool = True,
+    ) -> dict[str, Any]:
+        """Store only an explicitly approved alias; proposals remain outside aliases."""
+        value = normalize_food_name(alias)
+        if not value:
+            raise ValueError("alias is required")
+        if not approved_by_user:
+            raise ValueError("alias must be approved by the user before persistence")
+        food = self.get_food(user_id, food_id)
+        if food is None:
+            raise ValueError("food not found")
+        assigned = [
+            candidate
+            for candidate in self.find_by_alias(user_id, value.lower())
+            if str(candidate.get("food_id")) != str(food_id)
         ]
+        if assigned:
+            raise ValueError("alias is already assigned to another food")
+        updated = deepcopy(food)
+        updated["aliases"] = sorted(set(updated.get("aliases") or []) | {value})
+        metadata = [
+            item
+            for item in updated.get("alias_metadata") or []
+            if isinstance(item, dict) and normalize_food_name(item.get("alias")).lower() != value.lower()
+        ]
+        metadata.append(
+            {
+                "alias": value,
+                "normalized_alias": value.lower(),
+                "source": source,
+                "ai_model": ai_model,
+                "approved_by_user": True,
+                "review_status": "reviewed",
+            }
+        )
+        updated["alias_metadata"] = metadata
+        updated["updated_by"] = "user"
+        updated["updated_at"] = utc_now()
+        return self.upsert_food(user_id, updated)
 
     def list_active_foods(self, user_id: str) -> list[dict[str, Any]]:
         return [food for food in self.list_foods(user_id) if food.get("status") == "active"]
