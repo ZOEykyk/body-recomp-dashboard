@@ -25,7 +25,9 @@ Atomic daily-row upsert
 ↓
 CSV storage
 ↓
-Dashboard Aggregation
+Canonical Projection
+↓
+Dashboard Projection / Aggregation
 ↓
 Dashboard renderer
 ↓
@@ -39,7 +41,7 @@ Body Score / Coach feedback
 - `app.py`: Streamlit page setup, input forms, JSON import flow, normalization, CSV persistence, GitHub-backed storage, and high-level orchestration.
 - `bodyos_import.py`: Pure Schema 1.0 adapter, legacy conversion, validation, Preview, diagnostics, anomaly detection, single-path nutrition aggregation, structured workout projection, and JSON export.
 - `dashboard.py`: Dashboard rendering layer for the Dashboard v1.0 information hierarchy, metrics, core trend charts, normalized score component cards, improvement priorities, recent details, history tables, and Workout Intelligence display.
-- `dashboard_aggregation.py`: Stored-value-only daily aggregate contract shared by Dashboard components.
+- `dashboard_aggregation.py`: Stored-value-only canonical and display-safe Dashboard Projection shared by Dashboard components.
 - `workout_history.py`: Structured Workout JSON reader and compact session/exercise/set history projection.
 - `records.csv`: Current source of truth for user records.
 - `food_dictionary.json`: General food calorie estimates.
@@ -81,9 +83,10 @@ Daily records remain CSV-first. Locally, records are saved to `records.csv`; hos
 6. Workout Intelligence parses workout text for insights without changing the CSV schema.
 7. Body Score is calculated by `calculate_bodyos_score(record)` in `bodyos_standard.py`.
 8. Record is saved to CSV.
-9. `app.py` passes normalized records to `dashboard.py`.
-10. `dashboard.py` renders the dashboard and passes a read-only Food Knowledge snapshot to Nutrition Intelligence.
-11. `food_knowledge_dashboard.py` renders Food Knowledge counts, confidence, usage, and recent activity without changing the CSV.
+9. `dashboard_aggregation.py` projects each persisted row into one canonical Dashboard record, preferring structured meal/workout data while retaining legacy CSV fallback.
+10. `app.py` passes normalized records to `dashboard.py`.
+11. `dashboard.py` renders only completed Projection values and passes a read-only Food Knowledge snapshot to Nutrition Intelligence.
+12. `food_knowledge_dashboard.py` renders Food Knowledge counts, confidence, usage, and recent activity without changing the CSV.
 
 ## Nutrition Parser Layer
 
@@ -130,8 +133,8 @@ bodyos_standard.py / workout_intelligence.py
 ```
 
 - `app.py` orchestrates page setup, data loading, data saving, imports, and user input.
-- `dashboard.py` renders visual summaries and calls stable analysis interfaces. It derives component achievement percentages at render time and does not change stored raw scores.
-- `dashboard_aggregation.py` reads only persisted values and never reruns calorie or workout estimation.
+- `dashboard.py` renders visual summaries and calls stable analysis interfaces. Recent-detail UI consumes only completed Dashboard Projection lines rather than reaching into CSV, structured JSON, or Resolver output directly.
+- `dashboard_aggregation.py` reads only persisted values and never reruns calorie or workout estimation. It projects structured meals, names, quantities, saved nutrition totals, notes, and display-safe null values into a single UI contract. Structured `snacks` and compatible `snack` keys are normalized here.
 - `workout_history.py` renders structured session, exercise, and ordered-set history while legacy text remains supported.
 - `bodyos_standard.py` evaluates daily BodyOS scores and exposes shared component maximum scores through `SCORE_COMPONENT_MAXIMA`.
 - `workout_intelligence.py` analyzes workout detail text.

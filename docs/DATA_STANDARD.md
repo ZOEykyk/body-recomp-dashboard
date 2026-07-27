@@ -4,7 +4,7 @@
 
 `records.csv` is the current source of truth. All import, dashboard, scoring, and recalculation logic must preserve compatibility with existing CSV records.
 
-`dashboard.py` is a rendering layer only. `dashboard_aggregation.py` is the common stored-value projection for metrics and counts. Rendering code must not independently recalculate calories, PFC, or structured Workout counts.
+`dashboard.py` is a rendering layer only. `dashboard_aggregation.py` is the common stored-value projection for metrics, meals, display text, and Workout counts. Rendering code must not independently read alternate persistence shapes or recalculate calories, PFC, or structured Workout counts.
 
 Raw user records are immutable by default. New parsing, scoring, calorie, or display rules must not silently rewrite historical rows during ordinary app launch. Corrected rules apply to new records, new imports, explicit edits, and records explicitly re-imported by the user. Historical migration requires a separate user-confirmed workflow.
 
@@ -71,6 +71,10 @@ The normative contract is `schemas/bodyos-daily-log.schema.json`; the human-read
 - Manual calories override automatic estimates if available.
 - New CSV columns should be optional unless a migration PR explicitly changes the schema.
 - PR13 adds optional structured/aggregate columns. They are populated only for new, edited, or explicitly re-imported rows; ordinary launch does not rewrite history.
+- Dashboard data flows through `records.csv` -> Canonical Projection -> Dashboard Projection -> UI. Structured meal/workout JSON is preferred when present; legacy columns remain a read-compatible fallback.
+- Dashboard meal calories come from each persisted structured meal section. Explicit item nutrition is resolved before Food Resolver nutrition during import; unresolved item calories remain null and are shown as partial rather than silently becoming zero.
+- `snacks` is the canonical meal key. The singular compatibility key `snack` is normalized at import and Dashboard Projection boundaries.
+- Display Projection converts null, NaN, `None`, empty strings, and empty arrays to `—` or `なし` as appropriate. Array notes are joined as natural text; Python collection representations must not reach the user interface.
 - Existing records must remain readable after normalization.
 - Missing body weight values are not real zero weights. Dashboard averages, rolling averages, charts, and predictions must ignore missing weight values.
 - Meal text that clearly means no meal must be treated as 0 kcal and must not receive fallback calories.

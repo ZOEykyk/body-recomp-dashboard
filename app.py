@@ -26,6 +26,7 @@ from bodyos_import import (
     ImportValidationError as BodyOSImportValidationError,
     canonical_to_projection,
     export_projection,
+    import_document_fingerprint,
     operation_import_id,
     parse_import_json,
     preview_import,
@@ -1192,13 +1193,20 @@ chatgpt_log = st.text_area(
 import_state = streamlit_session_state()
 
 if st.button("取り込み内容を確認"):
+    for key in (
+        "bodyos_import_document",
+        "bodyos_import_preview",
+        "bodyos_import_preview_fingerprint",
+        "bodyos_import_result",
+    ):
+        import_state.pop(key, None)
     try:
         document = parse_import_json(chatgpt_log)
         existing_dates = set(pd.to_datetime(df["日付"], errors="coerce").dt.strftime("%Y-%m-%d").dropna())
         preview = preview_import(document, existing_dates)
         import_state["bodyos_import_document"] = document
         import_state["bodyos_import_preview"] = preview
-        import_state.pop("bodyos_import_result", None)
+        import_state["bodyos_import_preview_fingerprint"] = import_document_fingerprint(document)
     except BodyOSImportValidationError as exc:
         st.error("JSONを検証できませんでした。入力内容を確認してください。")
         for message in exc.errors:
@@ -1215,6 +1223,23 @@ if st.button("取り込み内容を確認"):
 
 import_document = import_state.get("bodyos_import_document")
 import_preview = import_state.get("bodyos_import_preview")
+preview_fingerprint = import_state.get("bodyos_import_preview_fingerprint")
+preview_is_current = False
+if isinstance(import_document, dict) and isinstance(import_preview, dict) and str(chatgpt_log or "").strip():
+    try:
+        current_document = parse_import_json(chatgpt_log)
+        preview_is_current = (
+            import_document_fingerprint(current_document) == preview_fingerprint
+            and import_document_fingerprint(import_document) == preview_fingerprint
+        )
+    except BodyOSImportValidationError:
+        preview_is_current = False
+if isinstance(import_document, dict) and isinstance(import_preview, dict) and not preview_is_current:
+    import_state.pop("bodyos_import_result", None)
+    st.info("JSONがPreview後に変更されています。現在の内容をもう一度確認してください。")
+    import_document = None
+    import_preview = None
+
 if isinstance(import_document, dict) and isinstance(import_preview, dict):
     st.subheader("Import Preview")
     preview_rows = pd.DataFrame(import_preview["records"]).rename(

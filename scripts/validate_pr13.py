@@ -15,8 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bodyos_import import normalize_import_document, preview_import, workout_counts  # noqa: E402
-from dashboard_aggregation import aggregate_record  # noqa: E402
+from bodyos_import import import_document_fingerprint, normalize_import_document, preview_import, workout_counts  # noqa: E402
+from dashboard_aggregation import aggregate_record, project_dashboard_record  # noqa: E402
 
 
 def check(condition: bool, message: str) -> None:
@@ -69,6 +69,56 @@ def main() -> None:
     check(cancel_counts["skipped"] == 1 and int(cancelled.iloc[0]["歩数"]) == 11786, "cancel preserves stored day")
     replaced, replace_counts = app.apply_import_rows(second, changed_projected, changed_diagnostics, "replace")
     check(replace_counts["replaced"] == 1 and int(replaced.iloc[0]["歩数"]) == 12001, "replace swaps the daily projection")
+
+    compatibility_fixture = json.loads(
+        (ROOT / "tests/fixtures/pr13_compatibility_input_2026-07-26.json").read_text(encoding="utf-8")
+    )
+    compatibility_document = normalize_import_document(compatibility_fixture)
+    compatibility_projected, compatibility_diagnostics = app.build_import_rows(compatibility_document)
+    compatibility_first, compatibility_first_counts = app.apply_import_rows(
+        pd.DataFrame(columns=app.COLUMNS),
+        compatibility_projected,
+        compatibility_diagnostics,
+        "update",
+    )
+    compatibility_initial_calories = float(compatibility_first.iloc[0]["推定摂取カロリー"])
+
+    changed_compatibility_fixture = json.loads(json.dumps(compatibility_fixture, ensure_ascii=False))
+    changed_compatibility_fixture["steps"] = 12000
+    changed_compatibility_document = normalize_import_document(changed_compatibility_fixture)
+    changed_compatibility_projected, changed_compatibility_diagnostics = app.build_import_rows(
+        changed_compatibility_document
+    )
+    compatibility_updated, compatibility_update_counts = app.apply_import_rows(
+        compatibility_first,
+        changed_compatibility_projected,
+        changed_compatibility_diagnostics,
+        "update",
+    )
+    compatibility_dashboard = project_dashboard_record(compatibility_updated.iloc[0])
+    check(
+        compatibility_first_counts["added"] == 1
+        and compatibility_update_counts["updated"] == 1
+        and len(compatibility_updated) == 1,
+        "changed same-day compatibility import updates one row",
+    )
+    check(compatibility_dashboard["steps"] == 12000, "same-day steps update reaches dashboard projection")
+    check(compatibility_dashboard["meal_item_count"] == 11, "same-day update keeps eleven foods")
+    check(
+        compatibility_dashboard["workout_session_count"] == 1
+        and compatibility_dashboard["workout_exercise_count"] == 6
+        and compatibility_dashboard["workout_set_count"] == 20,
+        "same-day update keeps the structured workout",
+    )
+    check(
+        float(compatibility_updated.iloc[0]["推定摂取カロリー"]) == compatibility_initial_calories,
+        "same-day update does not double calories",
+    )
+    check(
+        import_document_fingerprint(compatibility_document)
+        != import_document_fingerprint(changed_compatibility_document),
+        "changed same-day JSON is not treated as an identical retry",
+    )
 
     preview = preview_import(document, {"2026-07-26"})
     counts = workout_counts(document["records"][0]["workout"])

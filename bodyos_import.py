@@ -648,6 +648,12 @@ def import_fingerprint(record: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def import_document_fingerprint(document: dict[str, Any]) -> str:
+    records = document.get("records") if isinstance(document, dict) else None
+    encoded = json.dumps(records or [], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def new_import_id(record: dict[str, Any]) -> str:
     return f"imp_{record['date'].replace('-', '')}_{import_fingerprint(record)[:16]}"
 
@@ -977,6 +983,7 @@ __all__ = [
     "canonical_to_projection",
     "detect_anomalies",
     "export_projection",
+    "import_document_fingerprint",
     "import_fingerprint",
     "meal_count",
     "new_import_id",
