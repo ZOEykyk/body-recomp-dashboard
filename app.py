@@ -777,6 +777,9 @@ def normalize_columns(data: pd.DataFrame) -> pd.DataFrame:
         if column not in data.columns:
             data[column] = "" if column in TEXT_COLUMNS else pd.NA if column in NULLABLE_NUMERIC_COLUMNS else 0
 
+    for column in TEXT_COLUMNS:
+        data[column] = data[column].astype("object")
+
     data["筋トレ内容"] = data.apply(
         lambda row: substantive_training_detail(row["筋トレ内容"]) or substantive_training_detail(row["筋トレ有無"]),
         axis=1,
