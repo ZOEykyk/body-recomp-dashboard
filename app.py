@@ -1320,6 +1320,7 @@ if isinstance(import_document, dict) and isinstance(import_preview, dict):
                     sort_keys=True,
                 )
             )
+            st.rerun()
         except Exception as exc:
             LOGGER.exception(
                 json.dumps(
