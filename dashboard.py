@@ -840,7 +840,7 @@ def render_nutrition_intelligence(
                 {
                     "項目": name,
                     "状態": item["status"],
-                    "実績": item["actual"] if item["actual"] is not None else "—",
+                    "実績": str(item["actual"]) if item["actual"] is not None else "—",
                     "目標": str(item["target"]),
                     "点": f"{item['points']} / {item['max_points']}" if item["available"] else "—",
                 }
