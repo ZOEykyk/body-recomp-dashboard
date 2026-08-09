@@ -40,6 +40,7 @@ Body Score / Coach feedback
 
 - `app.py`: Streamlit page setup, input forms, JSON import flow, normalization, CSV persistence, GitHub-backed storage, and high-level orchestration.
 - `bodyos_import.py`: Pure Schema 1.0 adapter, legacy conversion, validation, Preview, diagnostics, anomaly detection, single-path nutrition aggregation, structured workout projection, and JSON export.
+- `schema_contract.py`: Read-only Schema 1.0 contract gate for path-aware multi-error validation, safe compatibility normalization, conflict detection, and canonical JSON projection.
 - `dashboard.py`: Dashboard rendering layer for the Dashboard v1.0 information hierarchy, metrics, core trend charts, normalized score component cards, improvement priorities, recent details, history tables, and Workout Intelligence display.
 - `dashboard_aggregation.py`: Stored-value-only canonical and display-safe Dashboard Projection shared by Dashboard components.
 - `workout_history.py`: Structured Workout JSON reader and compact session/exercise/set history projection.

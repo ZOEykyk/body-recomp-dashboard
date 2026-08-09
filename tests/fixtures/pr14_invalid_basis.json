@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "date": "2026-08-05",
+  "meals": {
+    "breakfast": [
+      {
+        "name": "推定食品",
+        "nutrition": {
+          "calories_kcal": 500,
+          "protein_g": null,
+          "fat_g": null,
+          "carbs_g": null,
+          "basis": "estimated_total"
+        }
+      }
+    ],
+    "lunch": [],
+    "dinner": [],
+    "snacks": [],
+    "drinks": []
+  }
+}

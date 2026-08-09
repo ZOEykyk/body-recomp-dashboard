@@ -18,6 +18,7 @@ Project BodyOS は、日々の行動を同じ物差しで眺めつつ、通常�
 - [PR12 Deployment Checklist](docs/PR12_DEPLOYMENT_CHECKLIST.md)
 - [PR12 Migration Review](docs/PR12_MIGRATION_REVIEW.md)
 - [BodyOS Import Schema 1.0](docs/bodyos-import-schema.md)
+- [BodyOS JSON Authoring Guide](docs/bodyos-json-authoring-guide.md)
 - [PR13 Acceptance Test](docs/PR13_ACCEPTANCE_TEST.md)
 - [Contributing](docs/CONTRIBUTING.md)
 - [PRD Template](docs/PRD/PRD_TEMPLATE.md)
@@ -141,11 +142,13 @@ Dashboard v1.0は、開いた直後に今日の状態を把握できるように
 
 アプリの`BodyOS JSON Import`では、正式Schema 1.0または従来のBodyOS/ChatGPT JSONを受け付けます。保存前に対象日、食事件数、Workoutのセッション・種目・セット数、既存日との競合、警告をPreviewできます。
 
+PR14では`schemas/bodyos-daily-log.schema.json`を唯一の正として、Compatibility変換後に全SchemaエラーをPath付きで検証します。意味が明確で情報損失や競合のないaliasだけを変換し、変更内容をNormalization Reportへ表示します。Previewでは保存されるCanonical JSONを確認でき、そのJSONは再Import時に追加変換0件で通過します。enum外basis、競合alias、複数Workout session、未知fieldは推測せず拒否します。
+
 同一日がある場合は、初期値`更新`のほか、`置換`または`中止`を明示的に選択できます。同一JSONを再実行しても日次行、Workout、Food Encounterは重複しません。内容を変更した同日JSONは同じ日次行を更新し、Food Encounterには新しいcontent fingerprintが使われます。
 
 保存後は項目別Diagnosticsとカロリー不明件数を表示します。明示栄養を最優先し、なければPersonal、Official、Genericの順で一度だけ解決します。Fallback値は既存手入力の概算では維持しますが、正式Importでは既知栄養へ昇格せず`null`と不明件数を保存します。
 
-正式な項目、Workoutセット形式、欠損値、互換ルールは[BodyOS Import Schema 1.0](docs/bodyos-import-schema.md)を参照してください。保存済み日は同じSchemaでJSON Exportできます。
+正式な項目、Workoutセット形式、欠損値、互換ルールは[BodyOS Import Schema 1.0](docs/bodyos-import-schema.md)、コピー用の見本とNG/OKは[BodyOS JSON Authoring Guide](docs/bodyos-json-authoring-guide.md)を参照してください。保存済み日は同じSchemaでJSON Exportできます。
 
 週ごとの筋トレ回数は、保存値の文字列完全一致ではなく、正規化後の筋トレ有無で集計されます。
 

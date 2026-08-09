@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "date": "2026-08-04",
+  "condition": 7,
+  "condition_score": 8,
+  "meals": {
+    "breakfast": [],
+    "lunch": [],
+    "dinner": [],
+    "snacks": [],
+    "drinks": []
+  }
+}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import base64
+import html
 import json
 import logging
 import os
@@ -24,6 +25,7 @@ from bodyos_standard import (
 )
 from bodyos_import import (
     ImportValidationError as BodyOSImportValidationError,
+    canonical_document_payload,
     canonical_to_projection,
     export_projection,
     import_document_fingerprint,
@@ -46,6 +48,7 @@ from food_knowledge_dashboard import render_food_knowledge_dashboard
 from food_parser import parse_food_text
 from food_resolver import RESOLUTION_ORIGINS, build_food_knowledge_snapshot, resolve_food_text
 from personal_food_master import remember_food_encounters_with_summary
+from schema_contract import load_canonical_example
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
@@ -472,6 +475,97 @@ def render_food_import_summary(summary: dict[str, int]) -> None:
     )
     if summary.get("save_failed", 0):
         st.warning("一部のFood Encounterを保存できませんでした。records.csvの保存結果には影響ありません。")
+
+
+def render_schema_validation_errors(exc: BodyOSImportValidationError) -> None:
+    st.error(f"Schema Validation Error: {len(exc.errors)}件。保存は実行されていません。")
+    issues = exc.issues or [
+        {
+            "path": "$",
+            "message": message,
+            "suggestion": None,
+            "auto_fixable": False,
+        }
+        for message in exc.errors
+    ]
+    cards = []
+    for issue in issues:
+        suggestion = issue.get("suggestion") or "入力側でSchema 1.0に合わせて修正してください。"
+        auto_fix = "可能" if issue.get("auto_fixable") else "不可"
+        cards.append(
+            "<div class='bodyos-schema-error-card'>"
+            f"<div class='bodyos-schema-error-path'>{html.escape(str(issue.get('path') or '$'))}</div>"
+            f"<div class='bodyos-schema-error-message'>{html.escape(str(issue.get('message') or 'Validation error'))}</div>"
+            f"<div class='bodyos-schema-error-suggestion'><strong>修正候補:</strong> {html.escape(str(suggestion))}</div>"
+            f"<div class='bodyos-schema-error-auto'>自動修正: {auto_fix}</div>"
+            "</div>"
+        )
+    st.markdown(
+        """
+        <style>
+          .bodyos-schema-errors,
+          .bodyos-schema-errors * { box-sizing: border-box; min-width: 0; }
+          .bodyos-schema-errors { display: grid; gap: 0.65rem; width: 100%; }
+          .bodyos-schema-errors .bodyos-schema-error-card {
+            border: 1px solid rgba(220, 53, 69, 0.36); border-radius: 8px;
+            padding: 0.75rem 0.85rem; background: rgba(220, 53, 69, 0.06);
+            overflow: hidden;
+          }
+          .bodyos-schema-errors .bodyos-schema-error-path {
+            color: #b42318; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-weight: 700; overflow-wrap: anywhere; word-break: break-word;
+          }
+          .bodyos-schema-errors .bodyos-schema-error-message,
+          .bodyos-schema-errors .bodyos-schema-error-suggestion,
+          .bodyos-schema-errors .bodyos-schema-error-auto {
+            margin-top: 0.38rem; line-height: 1.45; overflow-wrap: anywhere; word-break: break-word;
+          }
+          .bodyos-schema-errors .bodyos-schema-error-auto { font-size: 0.88rem; opacity: 0.78; }
+          @media (max-width: 520px) {
+            .bodyos-schema-errors .bodyos-schema-error-card { padding: 0.7rem 0.72rem; }
+          }
+        </style>
+        """ + f"<div class='bodyos-schema-errors'>{''.join(cards)}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_normalization_report(changes: list[dict[str, Any]]) -> None:
+    if not changes:
+        st.success("Canonical Schema 1.0 input。Compatibility normalizationは不要です。")
+        return
+    st.info(f"Compatibility normalization: {len(changes)} changes")
+    rows = "".join(
+        "<div class='bodyos-normalization-row'>"
+        f"<code>{html.escape(str(change.get('source_path') or '$'))}</code>"
+        "<span aria-hidden='true'>→</span>"
+        f"<code>{html.escape(str(change.get('target_path') or '$'))}</code>"
+        "</div>"
+        for change in changes
+    )
+    st.markdown(
+        """
+        <style>
+          .bodyos-normalization-report,
+          .bodyos-normalization-report * { box-sizing: border-box; min-width: 0; }
+          .bodyos-normalization-report { display: grid; gap: 0.45rem; width: 100%; }
+          .bodyos-normalization-report .bodyos-normalization-row {
+            display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+            align-items: center; gap: 0.5rem; padding: 0.55rem 0.65rem;
+            border: 1px solid rgba(49, 51, 63, 0.16); border-radius: 6px;
+          }
+          .bodyos-normalization-report code {
+            white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+          }
+          @media (max-width: 520px) {
+            .bodyos-normalization-report .bodyos-normalization-row {
+              grid-template-columns: minmax(0, 1fr); gap: 0.2rem;
+            }
+          }
+        </style>
+        """ + f"<div class='bodyos-normalization-report'>{rows}</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def estimate_calories(text: str, meal_type: str = "") -> int:
@@ -1185,9 +1279,16 @@ if submitted:
 
 st.header("BodyOS JSON Import")
 st.caption("正式Schema 1.0または旧BodyOS JSONを検証し、保存内容を確認してからrecords.csvへ反映します。")
+with st.expander("Canonical Schema 1.0 Example / JSON作成ガイド", expanded=False):
+    st.caption("このExampleはSchema 1.0だけで構成された、コピー用の正式入力例です。")
+    st.code(json.dumps(load_canonical_example(), ensure_ascii=False, indent=2), language="json")
+    st.markdown(
+        "[JSON Authoring Guide](https://github.com/ZOEykyk/body-recomp-dashboard/blob/main/docs/bodyos-json-authoring-guide.md) / "
+        "[Schema file](https://github.com/ZOEykyk/body-recomp-dashboard/blob/main/schemas/bodyos-daily-log.schema.json)"
+    )
 chatgpt_log = st.text_area(
     "JSON形式のログ",
-    placeholder='{"日付":"2026-06-30","mode":"EVENT","event_name":"仕事後の飲み会","weight":84.2,"steps":3493,"sleep_hours":3.83,"condition":7,"workout":false,"alcohol":"あり","alcohol_detail":"ビール1杯、濃いめハイボール約7杯","meal":"魚料理中心、飲み会前にグリルチキン・紅鮭おにぎり・半熟ゆで卵","推定摂取カロリー":2081,"コメント":"Body Scoreは省略してアプリ側で自動計算"}',
+    placeholder='{"schema_version":"1.0","date":"2026-08-09","sleep":{"hours":7.5},"condition":8,"steps":9000,"meals":{"breakfast":[],"lunch":[],"dinner":[],"snacks":[],"drinks":[]}}',
     height=220,
 )
 import_state = streamlit_session_state()
@@ -1208,9 +1309,10 @@ if st.button("取り込み内容を確認"):
         import_state["bodyos_import_preview"] = preview
         import_state["bodyos_import_preview_fingerprint"] = import_document_fingerprint(document)
     except BodyOSImportValidationError as exc:
-        st.error("JSONを検証できませんでした。入力内容を確認してください。")
-        for message in exc.errors:
-            st.write(f"- {message}")
+        render_schema_validation_errors(exc)
+        if exc.normalization_changes:
+            with st.expander("Validation前に適用可能だったCompatibility normalization", expanded=False):
+                render_normalization_report(exc.normalization_changes)
         if exc.warnings:
             with st.expander("変換時の警告"):
                 for message in exc.warnings:
@@ -1242,6 +1344,14 @@ if isinstance(import_document, dict) and isinstance(import_preview, dict) and no
 
 if isinstance(import_document, dict) and isinstance(import_preview, dict):
     st.subheader("Import Preview")
+    normalization = import_document.get("metadata", {}).get("normalization", {})
+    render_normalization_report(normalization.get("changes") or [])
+    st.success("Schema Validation OK。保存対象はCanonical Schema 1.0です。")
+    with st.expander("保存されるCanonical JSON", expanded=False):
+        st.code(
+            json.dumps(canonical_document_payload(import_document), ensure_ascii=False, indent=2),
+            language="json",
+        )
     preview_rows = pd.DataFrame(import_preview["records"]).rename(
         columns={
             "date": "対象日",

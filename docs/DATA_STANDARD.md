@@ -12,6 +12,8 @@ Raw user records are immutable by default. New parsing, scoring, calorie, or dis
 
 The normative contract is `schemas/bodyos-daily-log.schema.json`; the human-readable guide is `docs/bodyos-import-schema.md`. New payloads require `schema_version: "1.0"`. Legacy payloads without a version use the compatibility adapter and emit a warning.
 
+PR14 keeps Schema 1.0 unchanged and separates compatibility input from canonical output. Input passes through safe compatibility normalization, path-aware Schema validation, and only then the existing canonical import projection. Every automatic change is visible in Preview. Ambiguous aliases, conflicting canonical/compatibility keys, multiple Workout sessions, unknown fields, and enum-external nutrition bases are rejected rather than guessed.
+
 ```json
 {
   "schema_version": "1.0",

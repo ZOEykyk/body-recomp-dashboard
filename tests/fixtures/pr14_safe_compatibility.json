@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "date": "2026-08-03",
+  "weight": 82.9,
+  "sleep_hours": 7,
+  "condition_score": 7,
+  "steps": 8500,
+  "meals": {
+    "breakfast": [
+      {
+        "name": "プロテインドリンク",
+        "quantity": {
+          "value": 1,
+          "unit": "本"
+        },
+        "nutrition": {
+          "calories": 150,
+          "protein": 20,
+          "fat": 2,
+          "carbs": 12,
+          "basis": "total"
+        }
+      }
+    ],
+    "lunch": [],
+    "dinner": [],
+    "snack": [],
+    "drinks": []
+  },
+  "alcohol": {
+    "consumed": false
+  },
+  "workout": {
+    "performed": true,
+    "sessions": [
+      {
+        "exercises": [
+          {
+            "name": "ベンチプレス",
+            "sets": [
+              {
+                "weight_kg": 90,
+                "reps": 5,
+                "completed": true,
+                "type": "work"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "nutrition": {
+    "calories_kcal": 2100,
+    "protein_g": 140,
+    "fat_g": 60,
+    "carbs_g": 240,
+    "basis": "total"
+  },
+  "notes": [
+    "safe compatibility fixture",
+    "normalization report required"
+  ]
+}

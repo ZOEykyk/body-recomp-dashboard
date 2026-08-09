@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "date": "2026-08-06",
+  "summary": "独自summary",
+  "memo": "独自memo",
+  "nutrition_summary": {
+    "calories": 2000
+  },
+  "meals": {
+    "breakfast": [
+      {
+        "name": "不正食品",
+        "nutrition": {
+          "calories_kcal": 300,
+          "basis": "label"
+        }
+      }
+    ],
+    "lunch": [],
+    "dinner": [],
+    "snacks": [],
+    "drinks": []
+  },
+  "workout": {
+    "performed": true,
+    "sessions": [
+      {
+        "exercises": []
+      },
+      {
+        "exercises": []
+      }
+    ]
+  }
+}

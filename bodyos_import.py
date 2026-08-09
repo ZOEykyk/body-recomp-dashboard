@@ -12,11 +12,20 @@ from uuid import uuid4
 
 from data_integrity import is_zero_meal_text
 from food_lookup import calculate_lookup_total
+from schema_contract import (
+    AMBIGUOUS_TOP_LEVEL_KEYS,
+    canonical_document_payload,
+    canonical_record_for_json,
+    deduplicate_issues,
+    format_issue,
+    normalize_compatibility_record,
+    validate_schema_record,
+)
 from workout_intelligence import parse_workout_detail
 
 
 IMPORT_SCHEMA_VERSION = "1.0"
-IMPORT_ENGINE_VERSION = "1.0"
+IMPORT_ENGINE_VERSION = "1.1"
 MEAL_TYPES = ("breakfast", "lunch", "dinner", "snacks", "drinks")
 MEAL_LABELS = {
     "breakfast": "朝",
@@ -59,9 +68,18 @@ LEGACY_MEAL_KEYS = {
 
 
 class ImportValidationError(ValueError):
-    def __init__(self, errors: list[str], warnings: list[str] | None = None):
+    def __init__(
+        self,
+        errors: list[str],
+        warnings: list[str] | None = None,
+        *,
+        issues: list[dict[str, Any]] | None = None,
+        normalization_changes: list[dict[str, Any]] | None = None,
+    ):
         self.errors = list(errors)
         self.warnings = list(warnings or [])
+        self.issues = list(issues or [])
+        self.normalization_changes = list(normalization_changes or [])
         super().__init__("\n".join(self.errors))
 
 
@@ -575,46 +593,162 @@ def _canonical_record(raw: dict[str, Any], record_number: int) -> tuple[dict[str
     )
 
 
+def _contract_issue(
+    path: str,
+    message: str,
+    *,
+    suggestion: str | None = None,
+    code: str = "input_contract",
+) -> dict[str, Any]:
+    return {
+        "path": path or "$",
+        "message": message,
+        "suggestion": suggestion,
+        "auto_fixable": False,
+        "code": code,
+    }
+
+
+def _legacy_error_issue(message: str, prefix: str) -> dict[str, Any]:
+    match = re.match(r"(?:\d+件目\.)?([^:]+):\s*(.*)", message)
+    if match:
+        local_path, detail = match.groups()
+        path = f"{prefix}.{local_path}" if prefix else local_path
+        return _contract_issue(path, detail, code="canonicalization_error")
+    return _contract_issue(prefix or "$", message, code="canonicalization_error")
+
+
+def _legacy_ambiguity_issues(record: dict[str, Any], prefix: str) -> list[dict[str, Any]]:
+    suggestions = {
+        "memo": "内容を確認し、日次メモなら `notes` を使用してください。",
+        "training": "内容を確認し、正式な `workout` objectを使用してください。",
+        "exercise": "`workout.exercises` 配下へ正式構造で記載してください。",
+    }
+    return [
+        _contract_issue(
+            f"{prefix}.{key}" if prefix else key,
+            "意味を安全に確定できない未定義フィールドです。",
+            suggestion=suggestions.get(key, "Schema 1.0の正式fieldへ入力側で書き直してください。"),
+            code="ambiguous_legacy_field",
+        )
+        for key in sorted(AMBIGUOUS_TOP_LEVEL_KEYS & set(record))
+    ]
+
+
 def normalize_import_document(payload: Any) -> dict[str, Any]:
-    if isinstance(payload, dict) and isinstance(payload.get("records"), list):
+    envelope_issues: list[dict[str, Any]] = []
+    if isinstance(payload, dict) and "records" in payload:
+        unknown_envelope = sorted(set(payload) - {"schema_version", "records"})
+        envelope_issues.extend(
+            _contract_issue(
+                key,
+                "batch envelopeの未定義フィールドです。",
+                suggestion="envelopeには `schema_version` と `records` だけを使用してください。",
+                code="additional_property",
+            )
+            for key in unknown_envelope
+        )
         top_version = _text(payload.get("schema_version"))
         if top_version != IMPORT_SCHEMA_VERSION:
-            raise ImportValidationError(
-                [f"schema_version: 未対応です（{top_version or 'missing'}）。対応版は{IMPORT_SCHEMA_VERSION}です。"]
+            envelope_issues.append(
+                _contract_issue(
+                    "schema_version",
+                    f"未対応です（{top_version or 'missing'}）。",
+                    suggestion=f"`{IMPORT_SCHEMA_VERSION}` を使用してください。",
+                    code="schema_const",
+                )
             )
-        raw_records = payload["records"]
+        raw_records = payload.get("records")
+        if not isinstance(raw_records, list):
+            envelope_issues.append(
+                _contract_issue("records", "配列にしてください。", suggestion="日次objectの配列を指定してください。", code="schema_type")
+            )
+            raw_records = []
+        prefixes = [f"records[{index}]" for index in range(len(raw_records))]
     elif isinstance(payload, list):
         raw_records = payload
+        prefixes = [f"records[{index}]" for index in range(len(raw_records))]
     elif isinstance(payload, dict):
         raw_records = [payload]
+        prefixes = [""]
     else:
-        raise ImportValidationError(["JSONはobject、object配列、またはrecords配列を持つobjectにしてください。"])
+        issue = _contract_issue("$", "JSONはobject、object配列、またはrecords配列を持つobjectにしてください。", code="schema_type")
+        raise ImportValidationError([format_issue(issue)], issues=[issue])
+
     if not raw_records:
-        raise ImportValidationError(["JSON配列が空です。1件以上のログが必要です。"])
-    if not all(isinstance(record, dict) for record in raw_records):
-        raise ImportValidationError(["各日次ログはobjectにしてください。"])
+        envelope_issues.append(_contract_issue("records", "1件以上の日次ログが必要です。", code="empty_records"))
 
     records: list[dict[str, Any]] = []
     warnings: list[str] = []
-    errors: list[str] = []
-    for index, raw in enumerate(raw_records, start=1):
+    issues: list[dict[str, Any]] = list(envelope_issues)
+    normalization_changes: list[dict[str, Any]] = []
+    for index, (raw, prefix) in enumerate(zip(raw_records, prefixes), start=1):
+        if not isinstance(raw, dict):
+            issues.append(_contract_issue(prefix, "各日次ログはobjectにしてください。", code="schema_type"))
+            continue
+        normalized_raw, record_changes, normalization_issues = normalize_compatibility_record(raw, path=prefix)
+        normalization_changes.extend(record_changes)
+        issues.extend(normalization_issues)
+        is_legacy = _text(raw.get("schema_version")) is None
+        if is_legacy:
+            issues.extend(_legacy_ambiguity_issues(normalized_raw, prefix))
+            normalization_changes.append(
+                {
+                    "source_path": prefix or "$",
+                    "target_path": f"{prefix + '.' if prefix else ''}schema_version",
+                    "action": "legacy_schema_upgrade",
+                    "message": f"{prefix or '$'} (legacy) → {prefix + '.' if prefix else ''}schema_version 1.0",
+                }
+            )
+        else:
+            issues.extend(validate_schema_record(normalized_raw, prefix=prefix))
+
+        blocking_for_record = [
+            issue for issue in issues if issue["path"] == prefix or issue["path"].startswith(f"{prefix}.") or issue["path"].startswith(f"{prefix}[")
+        ] if prefix else list(issues)
+        if blocking_for_record:
+            continue
         try:
-            record, record_warnings = _canonical_record(raw, index)
-            records.append(record)
-            warnings.extend(record_warnings)
+            record, record_warnings = _canonical_record(normalized_raw, index)
         except ImportValidationError as exc:
-            errors.extend(exc.errors)
+            issues.extend(_legacy_error_issue(message, prefix) for message in exc.errors)
             warnings.extend(exc.warnings)
+            continue
+        canonical_issues = validate_schema_record(canonical_record_for_json(record), prefix=prefix)
+        if canonical_issues:
+            issues.extend(canonical_issues)
+            continue
+        records.append(record)
+        warnings.extend(record_warnings)
+
     dates = [record["date"] for record in records]
     duplicates = sorted({date for date in dates if dates.count(date) > 1})
     if duplicates:
-        errors.append(f"同じJSON内で日付が重複しています: {', '.join(duplicates)}")
-    if errors:
-        raise ImportValidationError(errors, warnings)
+        issues.append(
+            _contract_issue(
+                "records",
+                f"同じJSON内で日付が重複しています: {', '.join(duplicates)}",
+                suggestion="日付ごとに1件へ統合してください。",
+                code="duplicate_date",
+            )
+        )
+    issues = deduplicate_issues(issues)
+    if issues:
+        raise ImportValidationError(
+            [format_issue(issue) for issue in issues],
+            warnings,
+            issues=issues,
+            normalization_changes=normalization_changes,
+        )
     return {
         "metadata": {
             "import_engine_version": IMPORT_ENGINE_VERSION,
             "schema_version": IMPORT_SCHEMA_VERSION,
+            "normalization": {
+                "change_count": len(normalization_changes),
+                "changes": normalization_changes,
+                "canonical_input": not normalization_changes,
+            },
         },
         "records": records,
         "warnings": warnings,
@@ -625,7 +759,13 @@ def parse_import_json(text: str) -> dict[str, Any]:
     try:
         payload = json.loads(str(text or ""))
     except json.JSONDecodeError as exc:
-        raise ImportValidationError([f"JSON形式エラー: {exc.msg}（line {exc.lineno}, column {exc.colno}）"]) from exc
+        issue = _contract_issue(
+            f"$ (line {exc.lineno}, column {exc.colno})",
+            f"JSON形式エラー: {exc.msg}",
+            suggestion="括弧、カンマ、引用符を確認してください。",
+            code="json_syntax",
+        )
+        raise ImportValidationError([format_issue(issue)], issues=[issue]) from exc
     return normalize_import_document(payload)
 
 
@@ -649,8 +789,11 @@ def import_fingerprint(record: dict[str, Any]) -> str:
 
 
 def import_document_fingerprint(document: dict[str, Any]) -> str:
-    records = document.get("records") if isinstance(document, dict) else None
-    encoded = json.dumps(records or [], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    payload = {
+        "records": document.get("records") or [],
+        "normalization": (document.get("metadata") or {}).get("normalization") or {},
+    } if isinstance(document, dict) else {"records": [], "normalization": {}}
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -925,7 +1068,7 @@ def export_projection(row: dict[str, Any]) -> dict[str, Any]:
         "carbs_g": _number(row.get("炭水化物(g)")),
         "basis": "total",
     }
-    return {
+    exported = {
         "schema_version": IMPORT_SCHEMA_VERSION,
         "date": _date(row.get("日付")),
         "weight": _number(row.get("体重")) or None,
@@ -944,6 +1087,7 @@ def export_projection(row: dict[str, Any]) -> dict[str, Any]:
         "event_name": _text(row.get("イベント名")),
         "nutrition_totals": totals,
     }
+    return canonical_record_for_json(exported)
 
 
 def structured_import_log(
@@ -981,6 +1125,7 @@ __all__ = [
     "MEAL_LABELS",
     "MEAL_TYPES",
     "canonical_to_projection",
+    "canonical_document_payload",
     "detect_anomalies",
     "export_projection",
     "import_document_fingerprint",
