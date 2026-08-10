@@ -1,6 +1,8 @@
 # BodyOS Import Schema 1.0
 
 The normative machine-readable contract is `schemas/bodyos-daily-log.schema.json`.
+For JSON generation rules and copy-ready examples, see
+[`docs/bodyos-json-authoring-guide.md`](bodyos-json-authoring-guide.md).
 
 ## Envelope
 

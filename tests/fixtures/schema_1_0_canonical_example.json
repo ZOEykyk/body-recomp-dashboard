@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "date": "2026-08-09",
+  "weight": 82.8,
+  "sleep": {
+    "hours": 7.5
+  },
+  "condition": 8,
+  "steps": 9200,
+  "meals": {
+    "breakfast": [
+      {
+        "name": "オイコス PRO",
+        "quantity": 1,
+        "unit": "個",
+        "notes": null,
+        "nutrition": {
+          "calories_kcal": 100,
+          "protein_g": 18,
+          "fat_g": 0,
+          "carbs_g": 6,
+          "basis": "total"
+        }
+      }
+    ],
+    "lunch": [
+      {
+        "name": "鶏むね肉とごはん",
+        "quantity": 1,
+        "unit": "食",
+        "notes": "栄養値は概算",
+        "nutrition": {
+          "calories_kcal": 620,
+          "protein_g": 42,
+          "fat_g": 12,
+          "carbs_g": 78,
+          "basis": "total"
+        }
+      }
+    ],
+    "dinner": [
+      {
+        "name": "鮭定食",
+        "quantity": 1,
+        "unit": "食",
+        "notes": null,
+        "nutrition": null
+      }
+    ],
+    "snacks": [],
+    "drinks": []
+  },
+  "alcohol": {
+    "consumed": false,
+    "detail": null,
+    "level": null
+  },
+  "workout": {
+    "performed": true,
+    "program_name": "DAY1",
+    "workout_type": "strength",
+    "duration_minutes": 60,
+    "notes": null,
+    "exercises": [
+      {
+        "name": "ベンチプレス",
+        "equipment": "barbell",
+        "notes": null,
+        "sets": [
+          {
+            "weight_kg": 90,
+            "reps": 5,
+            "rpe": 8,
+            "completed": true,
+            "set_type": "work"
+          }
+        ]
+      }
+    ]
+  },
+  "notes": "Canonical Schema 1.0の日次記録例",
+  "mode": "NORMAL",
+  "event_name": null,
+  "nutrition_totals": {
+    "calories_kcal": 2100,
+    "protein_g": 145,
+    "fat_g": 58,
+    "carbs_g": 245,
+    "basis": "total"
+  }
+}
