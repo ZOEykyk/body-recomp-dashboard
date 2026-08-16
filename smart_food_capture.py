@@ -64,6 +64,17 @@ def default_capture_nutrition_basis(unit: Any) -> str:
     return "per_item"
 
 
+def resolve_capture_nutrition_basis(nutrition: Any, unit: Any) -> dict[str, Any]:
+    """Return nutrition with a deterministic basis for capture-editor values."""
+    resolved = _nutrition(nutrition)
+    if (
+        resolved.get("basis") == "unknown"
+        and any(resolved.get(field) is not None for field in NUTRITION_FIELDS)
+    ):
+        resolved["basis"] = default_capture_nutrition_basis(unit)
+    return resolved
+
+
 def _nutrition(value: Any, *, basis: str = "unknown") -> dict[str, Any]:
     source = value if isinstance(value, dict) else {}
     return {
@@ -338,12 +349,11 @@ def prepare_capture_item(
         source_type = "estimated"
     else:
         source_type = str(candidate.get("source_type") or "unknown")
-    if (
-        edited_nutrition.get("basis") == "unknown"
-        and source_type in {"user_label", "estimated"}
-        and any(edited_nutrition.get(field) is not None for field in NUTRITION_FIELDS)
+    edited_nutrition = resolve_capture_nutrition_basis(edited_nutrition, prepared["unit"])
+    if source_type == "unknown" and any(
+        edited_nutrition.get(field) is not None for field in NUTRITION_FIELDS
     ):
-        edited_nutrition["basis"] = default_capture_nutrition_basis(prepared["unit"])
+        source_type = "estimated"
     presentation = source_presentation(source_type)
     prepared.update(
         {
@@ -370,6 +380,7 @@ def calculate_capture_item_total(item: dict[str, Any]) -> dict[str, Any]:
 
     consumed_quantity = _positive_number(item.get("consumed_quantity"))
     unit = normalize_capture_unit(item.get("unit"))
+    nutrition = resolve_capture_nutrition_basis(nutrition, unit)
     if nutrition.get("basis") == "total":
         if consumed_quantity == _positive_number(item.get("quantity")):
             return {"included": True, "total_nutrition": nutrition, "needs_review": False, "reason": None, "factor": 1.0}

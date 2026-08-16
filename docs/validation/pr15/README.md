@@ -22,6 +22,8 @@ Validated against the actual Streamlit app on 2026-08-16.
   retains its entered per-unit nutrition. Daily and Canonical totals are 244 kcal,
   P 4.8 g, F 1.2 g, and C 55 g; re-search restores the original 122 kcal,
   P 2.4 g, F 0.6 g, and C 27.5 g per item from Personal Food Master.
+  Existing items and stale Streamlit widget state with `basis=unknown` are
+  automatically repaired without requiring a manual basis selection.
 - Canonical Builder: generated Schema 1.0 validates with `PASS` and requires
   `0 changes` from the compatibility normalizer.
 - Only consumed quantities appear in canonical meals and nutrition totals.

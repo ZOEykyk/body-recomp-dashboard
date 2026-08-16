@@ -22,6 +22,7 @@ from smart_food_capture import (  # noqa: E402
     candidates_from_resolution,
     default_capture_nutrition_basis,
     prepare_capture_item,
+    resolve_capture_nutrition_basis,
     search_food_candidates,
     unknown_candidate,
 )
@@ -176,6 +177,10 @@ def main() -> None:
             source_mode="user_label",
         )
         check(default_capture_nutrition_basis("本") == "per_item", "discrete UI unit defaults to per-item basis")
+        check(default_capture_nutrition_basis("個") == "per_item", "piece UI unit defaults to per-item basis")
+        check(default_capture_nutrition_basis("袋") == "per_item", "package-like UI unit defaults to per-item basis")
+        check(default_capture_nutrition_basis("g") == "per_100g", "gram UI unit defaults to per-100g basis")
+        check(default_capture_nutrition_basis("ml") == "per_100ml", "milliliter UI unit defaults to per-100ml basis")
         check(label_item["source_type"] == "user_label", "new label nutrition remains user-confirmed")
         check(label_item["nutrition"]["basis"] == "per_item", "new label nutrition receives a scalable basis")
         label_daily = calculate_daily_nutrition([label_item])
@@ -193,6 +198,35 @@ def main() -> None:
             "three purchased and two consumed scales all entered nutrition",
         )
         check(label_daily["unknown_count"] == 0, "known label calories and macros are not unknown")
+
+        stale_unknown_item = deepcopy(label_item)
+        stale_unknown_item["nutrition"]["basis"] = "unknown"
+        stale_unknown_item["source_type"] = "user_label"
+        stale_unknown_total = calculate_daily_nutrition([stale_unknown_item])
+        check(
+            stale_unknown_total["totals"]["calories_kcal"] == 244.0
+            and stale_unknown_total["totals"]["protein_g"] == 4.8
+            and stale_unknown_total["unknown_count"] == 0,
+            "existing known-nutrition item with unknown basis is recovered during aggregation",
+        )
+        updated_stale_item = prepare_capture_item(
+            stale_unknown_item,
+            meal_type="snacks",
+            quantity=3,
+            unit="本",
+            consumed_quantity=2,
+            nutrition=stale_unknown_item["nutrition"],
+            source_mode="candidate",
+            capture_id=stale_unknown_item["capture_id"],
+        )
+        check(
+            updated_stale_item["nutrition"]["basis"] == "per_item",
+            "editing an existing unknown-basis item persists the inferred basis",
+        )
+        check(
+            resolve_capture_nutrition_basis({**label_values, "basis": "unknown"}, "本")["basis"] == "per_item",
+            "UI and capture preparation share the same basis resolver",
+        )
         label_builder = canonical_builder_result(
             {"date": "2026-08-16", "workout": {"performed": False, "exercises": []}},
             [label_item],

@@ -13,6 +13,7 @@ from smart_food_capture import (
     calculate_daily_nutrition,
     default_capture_nutrition_basis,
     prepare_capture_item,
+    resolve_capture_nutrition_basis,
     search_food_candidates,
     source_presentation,
     unknown_candidate,
@@ -32,6 +33,21 @@ BASIS_OPTIONS = ["per_item", "per_package", "per_serving", "per_100g", "per_100m
 def _nutrition_input(label: str, value: Any, key: str) -> float | None:
     numeric = float(value) if isinstance(value, (int, float)) else None
     return st.number_input(label, min_value=0.0, value=numeric, step=0.1, key=key)
+
+
+def _nutrition_basis_input(nutrition: dict[str, Any], unit: Any, key: str) -> str:
+    basis_value = resolve_capture_nutrition_basis(nutrition, unit)["basis"]
+    if basis_value == "unknown":
+        basis_value = default_capture_nutrition_basis(unit)
+    if key in st.session_state and st.session_state.get(key) == "unknown":
+        # Synchronize stale pre-fix widget state before this run creates the widget.
+        st.session_state[key] = basis_value
+    return st.selectbox(
+        "栄養値の基準",
+        BASIS_OPTIONS,
+        index=BASIS_OPTIONS.index(basis_value),
+        key=key,
+    )
 
 
 def _source_badge(item: dict[str, Any]) -> str:
@@ -161,14 +177,7 @@ def _render_capture_card(item: dict[str, Any], index: int, items: list[dict[str,
         protein = _nutrition_input("1単位あたり Protein", nutrition.get("protein_g"), f"capture-p-{capture_id}")
         fat = _nutrition_input("1単位あたり Fat", nutrition.get("fat_g"), f"capture-f-{capture_id}")
         carbs = _nutrition_input("1単位あたり Carbs", nutrition.get("carbs_g"), f"capture-c-{capture_id}")
-        basis_value = str(nutrition.get("basis") or "unknown")
-        if basis_value == "unknown" and item.get("source_type") in {"user_label", "estimated"}:
-            basis_value = default_capture_nutrition_basis(unit)
-        basis = st.selectbox(
-            "栄養値の基準", BASIS_OPTIONS,
-            index=BASIS_OPTIONS.index(basis_value) if basis_value in BASIS_OPTIONS else BASIS_OPTIONS.index("unknown"),
-            key=f"capture-basis-{capture_id}",
-        )
+        basis = _nutrition_basis_input(nutrition, unit, f"capture-basis-{capture_id}")
         source_default = "商品ラベルで確認" if item.get("source_type") == "user_label" else "概算値として入力" if item.get("source_type") == "estimated" else "候補の値を使用"
         source_label = st.radio(
             "栄養値の由来", list(SOURCE_MODE_OPTIONS), index=list(SOURCE_MODE_OPTIONS).index(source_default),
@@ -262,14 +271,7 @@ def render_smart_food_capture(
         protein = _nutrition_input("1単位あたり Protein", nutrition.get("protein_g"), f"new-p-{editor_key}")
         fat = _nutrition_input("1単位あたり Fat", nutrition.get("fat_g"), f"new-f-{editor_key}")
         carbs = _nutrition_input("1単位あたり Carbs", nutrition.get("carbs_g"), f"new-c-{editor_key}")
-        basis_value = str(nutrition.get("basis") or "unknown")
-        if basis_value == "unknown":
-            basis_value = default_capture_nutrition_basis(unit)
-        basis = st.selectbox(
-            "栄養値の基準", BASIS_OPTIONS,
-            index=BASIS_OPTIONS.index(basis_value) if basis_value in BASIS_OPTIONS else BASIS_OPTIONS.index("unknown"),
-            key=f"new-basis-{editor_key}",
-        )
+        basis = _nutrition_basis_input(nutrition, unit, f"new-basis-{editor_key}")
         source_default = "概算値として入力" if candidate.get("source_type") in {"unknown", "estimated"} and calories is not None else "候補の値を使用"
         source_label = st.radio(
             "栄養値の由来", list(SOURCE_MODE_OPTIONS), index=list(SOURCE_MODE_OPTIONS).index(source_default),
