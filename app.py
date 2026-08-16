@@ -49,6 +49,14 @@ from food_parser import parse_food_text
 from food_resolver import RESOLUTION_ORIGINS, build_food_knowledge_snapshot, resolve_food_text
 from personal_food_master import remember_food_encounters_with_summary
 from schema_contract import load_canonical_example
+from smart_food_capture import (
+    canonical_builder_result,
+    canonical_workout_from_text,
+    candidates_from_resolution,
+    prepare_capture_item,
+    unknown_candidate,
+)
+from smart_food_capture_ui import CAPTURE_STATE_KEY, render_smart_food_capture
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
@@ -596,6 +604,60 @@ def calorie_confidence_for_entered_meals(*meal_details: tuple[Any, dict[str, Any
     return combine_calorie_confidence(*confidences)
 
 
+def legacy_meal_capture_items(
+    text: str,
+    detail: dict[str, Any],
+    meal_type: str,
+    manual_kcal: int,
+) -> list[dict[str, Any]]:
+    """Adapt the existing free-text workflow into the PR15 capture contract."""
+    value = str(text or "").strip()
+    if not value:
+        return []
+    if manual_kcal > 0:
+        candidate = unknown_candidate(value, meal_type)
+        candidate["display_name"] = value
+        candidate["canonical_name"] = value
+        return [
+            prepare_capture_item(
+                candidate,
+                meal_type=meal_type,
+                quantity=1,
+                unit=None,
+                consumed_quantity=1,
+                nutrition={
+                    "basis": "total",
+                    "calories_kcal": manual_kcal,
+                    "protein_g": None,
+                    "fat_g": None,
+                    "carbs_g": None,
+                    "sugar_g": None,
+                    "fiber_g": None,
+                    "salt_g": None,
+                },
+                source_mode="estimated",
+                notes="従来自由文の手入力カロリー",
+            )
+        ]
+    candidates = candidates_from_resolution(
+        detail.get("food_resolution") or {},
+        meal_type,
+        accept_fallback_estimate=True,
+    )
+    return [
+        prepare_capture_item(
+            candidate,
+            meal_type=meal_type,
+            quantity=candidate.get("quantity") or 1,
+            unit=candidate.get("unit"),
+            consumed_quantity=candidate.get("quantity") or 1,
+            source_mode="candidate",
+            notes="従来自由文入力",
+        )
+        for candidate in candidates
+    ]
+
+
 def rank_steps(steps: Any) -> str:
     value = parse_number(steps, default=0)
     if value >= 12000:
@@ -1138,6 +1200,11 @@ else:
     )
 
 st.header("今日の記録")
+smart_capture_items = render_smart_food_capture(
+    PERSONAL_FOOD_REPOSITORY,
+    PERSONAL_FOOD_USER_ID,
+    current_food_knowledge(),
+)
 with st.form("daily_record_form"):
     basic_col1, basic_col2 = st.columns(2)
     with basic_col1:
@@ -1153,26 +1220,25 @@ with st.form("daily_record_form"):
         alcohol_level = st.selectbox("飲酒レベル", ["なし", "軽い", "通常", "重い"])
         alcohol_detail = st.text_input("飲酒内容", placeholder="例：ビール1杯、濃いめハイボール7杯")
 
-    st.subheader("食べたもの")
-    st.caption("自動推定がずれる場合は、右側のカロリー欄へ手入力してください。手入力がある場合はそちらを優先します。")
+    with st.expander("従来の自由文入力（互換）", expanded=False):
+        st.caption("Smart Food Captureを使わない記録向けです。手入力カロリーは概算値として扱います。")
+        meal_col1, meal_col2 = st.columns(2)
+        with meal_col1:
+            breakfast = st.text_area("朝", placeholder="例：トマトジュース、ゆでたまご", height=80)
+            breakfast_kcal_manual = st.number_input("朝カロリー 手入力（任意）", min_value=0, max_value=3000, value=0, step=50)
 
-    meal_col1, meal_col2 = st.columns(2)
-    with meal_col1:
-        breakfast = st.text_area("朝", placeholder="例：トマトジュース、ゆでたまご", height=80)
-        breakfast_kcal_manual = st.number_input("朝カロリー 手入力（任意）", min_value=0, max_value=3000, value=0, step=50)
+            lunch = st.text_area("昼", placeholder="例：ぶっかけうどん、とり天1個", height=80)
+            lunch_kcal_manual = st.number_input("昼カロリー 手入力（任意）", min_value=0, max_value=4000, value=0, step=50)
 
-        lunch = st.text_area("昼", placeholder="例：ぶっかけうどん、とり天1個", height=80)
-        lunch_kcal_manual = st.number_input("昼カロリー 手入力（任意）", min_value=0, max_value=4000, value=0, step=50)
+            snacks = st.text_area("間食", placeholder="例：菓子123kcal、オイコス", height=80)
+            snacks_kcal_manual = st.number_input("間食カロリー 手入力（任意）", min_value=0, max_value=3000, value=0, step=50)
 
-        snacks = st.text_area("間食", placeholder="例：菓子123kcal、オイコス", height=80)
-        snacks_kcal_manual = st.number_input("間食カロリー 手入力（任意）", min_value=0, max_value=3000, value=0, step=50)
+        with meal_col2:
+            dinner = st.text_area("夜", placeholder="例：赤飯おにぎり、グリルチキン、オイコス", height=80)
+            dinner_kcal_manual = st.number_input("夜カロリー 手入力（任意）", min_value=0, max_value=5000, value=0, step=50)
 
-    with meal_col2:
-        dinner = st.text_area("夜", placeholder="例：赤飯おにぎり、グリルチキン、オイコス", height=80)
-        dinner_kcal_manual = st.number_input("夜カロリー 手入力（任意）", min_value=0, max_value=5000, value=0, step=50)
-
-        work_drinks = st.text_area("仕事中のドリンク", placeholder="例：コーヒー、カフェラテ、プロテイン", height=80)
-        drinks_kcal_manual = st.number_input("ドリンクカロリー 手入力（任意）", min_value=0, max_value=2000, value=0, step=50)
+            work_drinks = st.text_area("仕事中のドリンク", placeholder="例：コーヒー、カフェラテ、プロテイン", height=80)
+            drinks_kcal_manual = st.number_input("ドリンクカロリー 手入力（任意）", min_value=0, max_value=2000, value=0, step=50)
 
     st.subheader("筋トレ")
     trained = st.checkbox("筋トレした")
@@ -1186,31 +1252,82 @@ with st.form("daily_record_form"):
     score = st.slider("今日の採点", min_value=0, max_value=100, value=70, step=5)
     comment = st.text_area("コメント", placeholder="例：空腹感は少なめ。明日は歩数を増やす。", height=80)
 
-    submitted = st.form_submit_button("CSVに保存する")
-
-if submitted:
     breakfast_detail = estimate_calorie_detail(breakfast, "朝")
     lunch_detail = estimate_calorie_detail(lunch, "昼")
     dinner_detail = estimate_calorie_detail(dinner, "夜")
     snacks_detail = estimate_calorie_detail(snacks, "間食")
     drinks_detail = estimate_calorie_detail(work_drinks, "仕事中のドリンク")
-
-    breakfast_kcal = final_kcal(int(breakfast_detail["kcal"]), breakfast_kcal_manual)
-    lunch_kcal = final_kcal(int(lunch_detail["kcal"]), lunch_kcal_manual)
-    dinner_kcal = final_kcal(int(dinner_detail["kcal"]), dinner_kcal_manual)
-    snacks_kcal = final_kcal(int(snacks_detail["kcal"]), snacks_kcal_manual)
-    drinks_kcal = final_kcal(int(drinks_detail["kcal"]), drinks_kcal_manual)
-    calorie_confidence = calorie_confidence_for_entered_meals(
-        (breakfast, {"confidence": final_confidence(str(breakfast_detail["confidence"]), breakfast_kcal_manual)}),
-        (lunch, {"confidence": final_confidence(str(lunch_detail["confidence"]), lunch_kcal_manual)}),
-        (dinner, {"confidence": final_confidence(str(dinner_detail["confidence"]), dinner_kcal_manual)}),
-        (snacks, {"confidence": final_confidence(str(snacks_detail["confidence"]), snacks_kcal_manual)}),
-        (work_drinks, {"confidence": final_confidence(str(drinks_detail["confidence"]), drinks_kcal_manual)}),
+    legacy_capture_items = [
+        *legacy_meal_capture_items(breakfast, breakfast_detail, "breakfast", breakfast_kcal_manual),
+        *legacy_meal_capture_items(lunch, lunch_detail, "lunch", lunch_kcal_manual),
+        *legacy_meal_capture_items(dinner, dinner_detail, "dinner", dinner_kcal_manual),
+        *legacy_meal_capture_items(snacks, snacks_detail, "snacks", snacks_kcal_manual),
+        *legacy_meal_capture_items(work_drinks, drinks_detail, "drinks", drinks_kcal_manual),
+    ]
+    all_capture_items = [*smart_capture_items, *legacy_capture_items]
+    daily_builder = canonical_builder_result(
+        {
+            "date": record_date.isoformat(),
+            "mode": mode,
+            "event_name": event_name,
+            "weight": weight,
+            "sleep_hours": sleep_hours,
+            "condition": parse_number(condition, default=None),
+            "steps": steps,
+            "alcohol_consumed": alcohol == "あり",
+            "alcohol_detail": alcohol_detail,
+            "alcohol_level": alcohol_level,
+            "workout": canonical_workout_from_text(trained, training_detail),
+            "notes": comment,
+        },
+        all_capture_items,
     )
-    estimated_calories = breakfast_kcal + lunch_kcal + dinner_kcal + snacks_kcal + drinks_kcal
+    with st.expander("Generated Canonical Schema 1.0", expanded=False):
+        if daily_builder["validation_passed"] and not daily_builder["normalization_changes"]:
+            st.success("Validation: PASS / Compatibility normalization: 0 changes")
+        else:
+            st.error("Canonical validation failed. 保存は実行できません。")
+            for issue in daily_builder["validation_issues"]:
+                st.write(f"- {issue.get('path', '$')}: {issue.get('message', 'Validation error')}")
+        st.code(json.dumps(daily_builder["canonical"], ensure_ascii=False, indent=2), language="json")
+
+    submitted = st.form_submit_button(
+        "CSVに保存する",
+        disabled=not daily_builder["validation_passed"] or bool(daily_builder["normalization_changes"]),
+    )
+
+if submitted:
+    canonical_record = daily_builder["canonical"]
+    resolved_daily_nutrition = resolve_record_nutrition(
+        canonical_record,
+        lambda text, meal_type: resolve_food_text(text, meal_type, knowledge=current_food_knowledge()),
+    )
+    canonical_projection = canonical_to_projection(canonical_record, resolved_daily_nutrition)
+    breakfast_kcal = canonical_projection.get("朝カロリー(kcal)")
+    lunch_kcal = canonical_projection.get("昼カロリー(kcal)")
+    dinner_kcal = canonical_projection.get("夜カロリー(kcal)")
+    snacks_kcal = canonical_projection.get("間食カロリー(kcal)")
+    drinks_kcal = canonical_projection.get("ドリンクカロリー(kcal)")
+    calorie_total = resolved_daily_nutrition["totals"].get("calories_kcal")
+    estimated_calories = int(round(calorie_total)) if calorie_total is not None else None
+    consumed_sources = {
+        str(item.get("source_type") or "unknown")
+        for item in all_capture_items
+        if float(item.get("consumed_quantity") or 0) > 0
+    }
+    calorie_confidence = (
+        "low"
+        if consumed_sources & {"estimated", "unknown"}
+        else "medium"
+        if "trusted_catalog" in consumed_sources
+        else "high"
+        if consumed_sources
+        else "low"
+    )
 
     record = fill_body_scores(
         {
+            **canonical_projection,
             "日付": pd.to_datetime(record_date),
             "モード": mode,
             "イベント名": event_name,
@@ -1218,11 +1335,11 @@ if submitted:
             "歩数": steps,
             "歩数ランク": rank_steps(steps),
             "睡眠時間": sleep_hours,
-            "朝": breakfast,
-            "昼": lunch,
-            "夜": dinner,
-            "間食": snacks,
-            "仕事中のドリンク": work_drinks,
+            "朝": canonical_projection.get("朝", ""),
+            "昼": canonical_projection.get("昼", ""),
+            "夜": canonical_projection.get("夜", ""),
+            "間食": canonical_projection.get("間食", ""),
+            "仕事中のドリンク": canonical_projection.get("仕事中のドリンク", ""),
             "推定摂取カロリー": estimated_calories,
             "筋トレ有無": "あり" if trained else "なし",
             "筋トレ内容": training_detail,
@@ -1239,6 +1356,10 @@ if submitted:
             "ドリンクカロリー(kcal)": drinks_kcal,
             "ベンチプレス(kg)": bench if trained else 0,
             "カロリー推定信頼度": calorie_confidence,
+            "タンパク質(g)": resolved_daily_nutrition["totals"].get("protein_g"),
+            "脂質(g)": resolved_daily_nutrition["totals"].get("fat_g"),
+            "炭水化物(g)": resolved_daily_nutrition["totals"].get("carbs_g"),
+            "カロリー不明件数": resolved_daily_nutrition.get("unknown_calorie_count", 0),
         }
     )
     new_row = pd.DataFrame([record])
@@ -1249,11 +1370,11 @@ if submitted:
         try:
             food_summary = remember_saved_meals(
                 [
-                    ("朝", breakfast, breakfast_detail),
-                    ("昼", lunch, lunch_detail),
-                    ("夜", dinner, dinner_detail),
-                    ("間食", snacks, snacks_detail),
-                    ("仕事中のドリンク", work_drinks, drinks_detail),
+                    ("朝", canonical_projection.get("朝", ""), {}),
+                    ("昼", canonical_projection.get("昼", ""), {}),
+                    ("夜", canonical_projection.get("夜", ""), {}),
+                    ("間食", canonical_projection.get("間食", ""), {}),
+                    ("仕事中のドリンク", canonical_projection.get("仕事中のドリンク", ""), {}),
                 ],
                 record_date=record_date.isoformat(),
                 operation_id=f"manual-save:{record_date.isoformat()}",
@@ -1262,18 +1383,23 @@ if submitted:
         except Exception as exc:
             food_summary = empty_food_resolution_summary()
             st.warning(f"CSVは保存しましたが、Personal Food Masterの記録に失敗しました: {exc}")
-        st.success(
-            f"CSVへ保存しました。合計カロリーは約{estimated_calories:,}kcal、"
-            f"Body Scoreは{record['Body Score']}点です。"
+        calorie_message = (
+            f"既知カロリーは{estimated_calories:,}kcal"
+            if estimated_calories is not None
+            else "カロリーは不明"
         )
+        st.success(f"CSVへ保存しました。{calorie_message}、Body Scoreは{record['Body Score']}点です。")
+        meal_calorie_display = lambda value: f"{int(round(value)):,}kcal" if value is not None else "—"
         st.write(
-            f"朝 {breakfast_kcal:,}kcal / 昼 {lunch_kcal:,}kcal / 夜 {dinner_kcal:,}kcal / "
-            f"間食 {snacks_kcal:,}kcal / ドリンク {drinks_kcal:,}kcal"
+            f"朝 {meal_calorie_display(breakfast_kcal)} / 昼 {meal_calorie_display(lunch_kcal)} / "
+            f"夜 {meal_calorie_display(dinner_kcal)} / 間食 {meal_calorie_display(snacks_kcal)} / "
+            f"ドリンク {meal_calorie_display(drinks_kcal)}"
         )
         st.write(f"カロリー推定信頼度: {calorie_confidence}")
         if food_summary["encounter_count"]:
             st.caption(f"Personal Food Masterに{food_summary['encounter_count']}件の食品遭遇を記録しました。")
         render_food_import_summary(food_summary)
+        st.session_state[CAPTURE_STATE_KEY] = []
     except Exception as exc:
         st.error(f"保存に失敗しました: {exc}")
 

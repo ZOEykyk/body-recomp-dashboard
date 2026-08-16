@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import datetime as dt
+import hashlib
+import json
 from typing import Any
 
 from food_aliases import normalize_food_name
@@ -27,13 +30,24 @@ def _key(value: Any) -> str:
 
 
 def _matches_identity(item: dict[str, Any], food: dict[str, Any]) -> bool:
-    item_name = _key(item.get("canonical_name") or item.get("original_fragment") or item.get("raw_text"))
+    item_names = {
+        _key(value)
+        for value in (item.get("canonical_name"), item.get("original_fragment"), item.get("raw_text"))
+        if _key(value)
+    }
     aliases = [food.get("canonical_name"), *(food.get("aliases") or [])]
-    if not item_name or item_name not in {_key(alias) for alias in aliases if _key(alias)}:
+    if not item_names or not item_names.intersection({_key(alias) for alias in aliases if _key(alias)}):
         return False
     item_brand = _key(item.get("brand"))
     food_brand = _key(food.get("brand"))
-    return not item_brand or not food_brand or item_brand == food_brand
+    if item_brand and food_brand and item_brand != food_brand:
+        return False
+    for field in ("variant", "size"):
+        item_value = _key(item.get(field))
+        food_value = _key(food.get(field))
+        if item_value and food_value and item_value != food_value:
+            return False
+    return True
 
 
 def resolve_personal_food(item: dict[str, Any], foods: list[dict[str, Any]]) -> dict[str, Any]:
@@ -106,6 +120,116 @@ def promote_food(food: dict[str, Any], *, reviewer: str = "user", now: str | Non
             source["reviewer"] = reviewer
             source["verification_status"] = "verified"
     return promoted
+
+
+def confirm_capture_food(
+    repository: FoodMasterRepository,
+    user_id: str,
+    candidate: dict[str, Any],
+    *,
+    reviewer: str = "user",
+    now: str | None = None,
+) -> dict[str, Any]:
+    """Persist an explicitly confirmed label value as active personal knowledge."""
+    if not isinstance(candidate, dict) or candidate.get("source_type") != "user_label":
+        raise ValueError("Only an explicitly confirmed user label can be saved for future use.")
+    nutrition = deepcopy(candidate.get("nutrition") or {})
+    if nutrition.get("calories_kcal") is None:
+        raise ValueError("Confirmed nutrition requires calories.")
+
+    identity = {
+        "brand": candidate.get("brand"),
+        "canonical_name": candidate.get("canonical_name") or candidate.get("display_name"),
+        "variant": candidate.get("variant"),
+        "size": candidate.get("size"),
+        "quantity": candidate.get("quantity") or 1,
+        "unit": candidate.get("unit"),
+        "original_fragment": candidate.get("raw_text") or candidate.get("display_name"),
+    }
+    if not str(identity["canonical_name"] or "").strip():
+        raise ValueError("Confirmed food requires a name.")
+
+    existing: dict[str, Any] | None = None
+    food_id = str(candidate.get("food_id") or "")
+    if food_id:
+        existing = repository.get_food(user_id, food_id)
+    if existing is None:
+        exact = repository.find_food_candidates(user_id, identity)
+        existing = deepcopy(exact[0]) if len(exact) == 1 else None
+    if existing is None:
+        alias_matches = repository.find_by_alias(user_id, str(identity["original_fragment"] or ""))
+        existing = deepcopy(alias_matches[0]) if len(alias_matches) == 1 else None
+    food = existing or new_food_record(
+        user_id,
+        identity,
+        status="active",
+        review_status="reviewed",
+        now=now,
+    )
+
+    timestamp = now or utc_now()
+    verified_date = dt.date.fromisoformat(timestamp[:10]).isoformat()
+    fingerprint_payload = {
+        "food_id": food["food_id"],
+        "nutrition": nutrition,
+        "quantity": candidate.get("quantity"),
+        "unit": candidate.get("unit"),
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:20]
+    source_id = f"user-label:{food['food_id']}:{fingerprint}"
+    sources = []
+    for stored in food.get("nutrition_sources") or []:
+        stored_copy = deepcopy(stored)
+        source = stored_copy.get("source") if isinstance(stored_copy, dict) else None
+        if isinstance(source, dict) and source.get("source_type") == "explicit_user_label":
+            if source.get("source_id") == source_id:
+                continue
+            source["verification_status"] = "superseded"
+        sources.append(stored_copy)
+    sources.append(
+        {
+            "source": {
+                "source_id": source_id,
+                "source_type": "explicit_user_label",
+                "publisher": "user",
+                "source_ref": None,
+                "captured_at": verified_date,
+                "verified_at": verified_date,
+                "valid_from": verified_date,
+                "valid_to": None,
+                "product_version": candidate.get("size") or candidate.get("variant"),
+                "reviewer": reviewer,
+                "verification_status": "verified",
+                "confidence": "high",
+                "notes": "User confirmed the product label in Smart Food Capture.",
+            },
+            "nutrition": nutrition,
+        }
+    )
+    aliases = {
+        str(alias).strip()
+        for alias in [*(food.get("aliases") or []), identity["original_fragment"], identity["canonical_name"]]
+        if str(alias or "").strip()
+    }
+    food.update(
+        {
+            "brand": identity["brand"],
+            "canonical_name": identity["canonical_name"],
+            "variant": identity["variant"],
+            "size": identity["size"],
+            "aliases": sorted(aliases),
+            "default_quantity": candidate.get("quantity") or 1,
+            "default_unit": candidate.get("unit"),
+            "nutrition_sources": sources,
+            "status": "active",
+            "review_status": "reviewed",
+            "updated_by": reviewer,
+            "updated_at": timestamp,
+        }
+    )
+    return repository.upsert_food(user_id, food)
 
 
 def link_candidate_to_food(existing_food: dict[str, Any], candidate_food: dict[str, Any], *, updated_by: str = "user") -> dict[str, Any]:
