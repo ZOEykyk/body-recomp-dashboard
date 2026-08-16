@@ -190,6 +190,10 @@ class FallbackFoodMasterRepository(FoodMasterRepository):
         )
         return status
 
+    def cache_revision(self) -> int:
+        active = self.fallback if self._using_fallback or self.primary is None else self.primary
+        return active.cache_revision()
+
 
 def normalize_repository_mode(config: dict[str, str]) -> str:
     repository = str(config.get("FOOD_KNOWLEDGE_REPOSITORY") or "json").strip().lower()

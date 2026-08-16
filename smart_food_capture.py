@@ -7,6 +7,8 @@ import json
 from typing import Any
 from uuid import uuid4
 
+from performance_instrumentation import instrument
+
 from food_aliases import normalize_food_name
 from food_lookup import NUTRITION_FIELDS, calculate_lookup_total
 from food_source_policy import select_nutrition_source
@@ -256,6 +258,7 @@ def _suggestion_from_catalog(food: dict[str, Any], origin: str) -> dict[str, Any
     return candidate
 
 
+@instrument("food_search.candidates")
 def search_food_candidates(
     query: str,
     knowledge: dict[str, Any],
@@ -267,7 +270,7 @@ def search_food_candidates(
     if not needle:
         return []
     ranked: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    for food in deepcopy((knowledge or {}).get("personal_foods") or []):
+    for food in (knowledge or {}).get("personal_foods") or []:
         if food.get("status") != "active":
             continue
         values = [food.get("canonical_name"), *(food.get("aliases") or [])]
@@ -286,7 +289,7 @@ def search_food_candidates(
         ("official", (knowledge or {}).get("official_catalog") or [], 3),
         ("generic", (knowledge or {}).get("generic_catalog") or [], 4),
     ):
-        for food in deepcopy(foods):
+        for food in foods:
             values = [food.get("canonical_name"), *(food.get("aliases") or [])]
             if not any(needle in _compact(value) for value in values if _compact(value)):
                 continue
@@ -393,6 +396,7 @@ def calculate_capture_item_total(item: dict[str, Any]) -> dict[str, Any]:
     return {"included": True, **result}
 
 
+@instrument("nutrition.daily_aggregate")
 def calculate_daily_nutrition(items: list[dict[str, Any]] | None) -> dict[str, Any]:
     """Aggregate unique consumed foods and keep unknown items separate from zero kcal."""
     totals = {field: 0.0 for field in NUTRITION_FIELDS}
@@ -493,6 +497,7 @@ def build_canonical_daily_record(daily: dict[str, Any], items: list[dict[str, An
     return canonical_record_for_json(record)
 
 
+@instrument("canonical.build_and_validate")
 def canonical_builder_result(daily: dict[str, Any], items: list[dict[str, Any]] | None) -> dict[str, Any]:
     canonical = build_canonical_daily_record(daily, items)
     normalized, changes, normalization_issues = normalize_compatibility_record(canonical)

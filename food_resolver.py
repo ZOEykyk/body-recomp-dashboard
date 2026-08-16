@@ -10,6 +10,7 @@ from food_parser import parse_food_text
 from food_source_models import explicit_user_label_source, internal_nutrition_source
 from food_source_policy import FOOD_SOURCE_POLICY_VERSION, select_food_resolution_candidate
 from personal_food_master import personal_food_source_selection, resolve_personal_food
+from performance_instrumentation import instrument
 
 
 FOOD_RESOLVER_VERSION = "1.0"
@@ -264,6 +265,7 @@ def _aggregate_nutrition(item_results: list[dict[str, Any]], calories: float) ->
     return totals
 
 
+@instrument("food_resolver.resolve")
 def resolve_food_text(
     text: str,
     meal_type: str | None = None,
@@ -272,10 +274,14 @@ def resolve_food_text(
     as_of: dt.date | None = None,
 ) -> dict[str, Any]:
     """Pure Food Knowledge resolution entry point used by every BodyOS consumer."""
-    safe_knowledge = deepcopy(knowledge) if isinstance(knowledge, dict) else build_food_knowledge_snapshot()
-    safe_knowledge.setdefault("personal_foods", [])
-    safe_knowledge.setdefault("official_catalog", deepcopy(FOOD_LOOKUP_CATALOG))
-    safe_knowledge.setdefault("generic_catalog", deepcopy(GENERIC_FOOD_CATALOG))
+    source_knowledge = knowledge if isinstance(knowledge, dict) else {}
+    # Resolver helpers copy selected outputs; catalogs are read-only inputs and do
+    # not need a full defensive copy for every query.
+    safe_knowledge = {
+        "personal_foods": source_knowledge.get("personal_foods") or [],
+        "official_catalog": source_knowledge.get("official_catalog") or FOOD_LOOKUP_CATALOG,
+        "generic_catalog": source_knowledge.get("generic_catalog") or GENERIC_FOOD_CATALOG,
+    }
     normalized_meal_type = str(meal_type or "")
     parsed = parse_food_text(str(text or ""), meal_type=normalized_meal_type)
     date = as_of or dt.date.today()
