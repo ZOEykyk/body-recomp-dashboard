@@ -32,7 +32,7 @@ FOOD_ALIAS_CATALOG: list[dict[str, Any]] = [
     },
     {
         "canonical_name": "SAVAS BIO PRO",
-        "aliases": ["SAVAS BIO PRO", "ザバス BIO PRO", "savas bio pro"],
+        "aliases": ["SAVAS BIO PRO", "SAVAS BIO", "ザバス BIO PRO", "ザバス BIO", "savas bio pro", "savas bio"],
         "brand": "SAVAS",
         "brand_aliases": ["savas", "ザバス"],
         "variants": [],

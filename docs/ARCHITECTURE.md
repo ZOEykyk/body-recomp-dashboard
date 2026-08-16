@@ -54,6 +54,8 @@ Body Score / Coach feedback
 - `food_lookup_catalog.json`: Small reviewed catalog of official product/menu nutrition facts. It is local data, not a runtime web fetch or a broad Food Master database.
 - `food_knowledge_catalog.py`: Adapter that exposes the existing calorie dictionaries through one generic-catalog contract.
 - `food_resolver.py`: Pure application-level Single Source of Truth for candidate collection, source selection, quantity-aware nutrition, fallback, confidence, and resolution counts.
+- `smart_food_capture.py`: Pure FoodCandidate, search ranking, quantity/consumption calculation, daily nutrition aggregation, and Canonical Schema 1.0 builder.
+- `smart_food_capture_ui.py`: Responsive Streamlit search, source/confidence display, editor, and Purchased/Consumed input layer.
 - `food_source_models.py`: One shared metadata contract for every nutrition source.
 - `food_source_policy.py`: Pure deterministic product-tier and source-level priority, freshness, validity, and conflict-resolution policy.
 - `food_master_models.py`: Personal Food Master record and encounter contracts.
@@ -118,6 +120,30 @@ Supabase writes from ordinary authenticated roles are RPC-only. The normalized s
 Nutrition Intelligence is a separate read-time layer after nutrition resolution. `dashboard.py` calls the pure `analyze_nutrition(record, history, profile, now, food_knowledge)` interface. The engine passes the copied snapshot to the shared Resolver and has no Streamlit, file, network, repository, or LLM dependency.
 
 See [Food Knowledge Foundation](FOOD_KNOWLEDGE.md) for resolver contracts and [Food Knowledge Supabase Operations](SUPABASE_FOOD_KNOWLEDGE.md) for schema, RLS, migration, rollback, and failure handling.
+
+## Smart Food Capture Flow
+
+```text
+Food name
+↓
+Personal / Frequent / Recent / Official / Generic suggestions
+↓
+Food Resolver
+↓
+Editable FoodCandidate
+↓
+Purchased / Consumed state
+↓
+Consumed-only nutrition aggregation
+↓
+Canonical Builder
+↓
+Schema 1.0 validation with zero normalization
+↓
+CSV Projection and existing Encounter persistence
+```
+
+Confirmed Food persists through the existing `FoodMasterRepository`; JSON and Supabase adapters therefore share the same behavior. Planned Food remains UI input state and is not projected as a consumed Encounter. No parallel resolver, CSV schema, Schema 1.1, or PR15-specific database is introduced.
 
 ## Dashboard Layer
 

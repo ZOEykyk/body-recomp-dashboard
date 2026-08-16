@@ -150,6 +150,20 @@ The stored CSV remains backward-compatible. Existing historical rows are not aut
 - Unknown non-empty meal text may still use fallback estimation.
 - Manual user-entered calories are authoritative for that meal.
 
+## Smart Food Capture Rules
+
+- Food resolution priority is current explicit label, Personal confirmed Food Master, Official, Generic trusted source, then Estimate/Fallback.
+- A user-confirmed label value is reusable active Personal Food knowledge. A weaker estimate must never replace it.
+- Estimated and unknown values cannot be promoted by implicit save. Promotion requires the explicit「この食品の栄養値を今後も使用する」operation and `user_label` classification.
+- Source presentation is deterministic: user label, Personal Master, and Official are High; trusted catalog is Medium; estimated and unknown are Low.
+- Purchased quantity and consumed quantity are separate. Only consumed quantity contributes to Canonical meals, daily nutrition, Body Score, and Food Encounter persistence.
+- Unknown consumed food has `calories_kcal=null`; it is never silently converted to 0 kcal. Known calories and unknown item count are displayed separately.
+- Quantity scaling must respect nutrition basis and compatible units. Partial consumption of a `total` value that cannot be scaled remains review-required.
+- Daily totals are recalculated from unique consumed FoodCandidate IDs. Editing item nutrition or consumed quantity changes totals; stored daily totals do not override the item sum.
+- `canonical_builder_result()` is pure, emits Schema 1.0 directly, and must have zero Compatibility normalization changes before save.
+- Source, confidence, and planned state are not new Canonical Schema fields. Source evidence belongs to Food Knowledge; only consumed food identity, quantity, nutrition, and explanatory notes enter the daily log.
+- PR15 adds no database migration. Confirmed foods reuse existing normalized Food Knowledge tables; planned input remains Streamlit session state until consumed.
+
 ## Body Score Data Rules
 
 Body Score should be recalculable from stored records. Imported manual Body Score values may be preserved separately, but current dashboard logic should prefer the app's latest calculated score when recalculating.

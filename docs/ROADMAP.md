@@ -24,13 +24,15 @@
 - PR11 Food Knowledge Foundation
 - PR12 Food Knowledge Supabase Migration (implementation complete; hosted acceptance pending)
 - PR13 Data Import & Dashboard Reliability
+- PR14 Schema Contract Hardening
+- PR15 Smart Food Capture & Nutrition Accuracy
 - PR8 Body Score AI
 - PR9 Coach AI
 - Future Lifestyle Intelligence
 
 ## Milestone M3 Platform
 
-- Smart Food Capture (deferred until the data foundation is accepted)
+- PR16 Smart Label Capture / OCR
 - API separation
 - Database storage
 - Multi-device use

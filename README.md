@@ -6,12 +6,14 @@ Project BodyOS は、日々の行動を同じ物差しで眺めつつ、通常�
 
 ## Project Documentation
 
+- [Product Vision](docs/PRODUCT_VISION.md)
 - [BodyOS Constitution](docs/BODYOS_CONSTITUTION.md)
 - [Development Standard](docs/DEVELOPMENT_STANDARD.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Data Standard](docs/DATA_STANDARD.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Food Knowledge Foundation](docs/FOOD_KNOWLEDGE.md)
+- [Smart Food Capture](docs/SMART_FOOD_CAPTURE.md)
 - [Food Knowledge Supabase Operations](docs/SUPABASE_FOOD_KNOWLEDGE.md)
 - [Food Knowledge Production Runbook](docs/FOOD_KNOWLEDGE_RUNBOOK.md)
 - [PR12 Acceptance Test](docs/PR12_ACCEPTANCE_TEST.md)
@@ -72,6 +74,16 @@ v1の標準目標は、カロリー2,200kcal、タンパク質は体重があれ
 辞書で一部しか検出できない場合は、残りを0kcalにはせず、食事種別ごとの控えめなフォールバックを足します。推定の確からしさは `カロリー推定信頼度` に `high`、`medium`、`low` で保存されます。
 
 正確さが重要な日は、各食事のカロリー手入力欄、またはChatGPTログ内の明示的なカロリー値を使ってください。
+
+## Smart Food Capture
+
+「今日の記録」では食品名からPersonal Food Master、利用頻度、最近の食品、Official、Genericの順で候補を確認できます。数量、単位、Calories、P/F/C、食事区分、摂取数量、備考を編集でき、SourceとConfidenceを確定・推定・不明で区別します。
+
+商品ラベルを確認した値は「この食品の栄養値を今後も使用する」を明示した場合だけPersonal Food Masterへ保存されます。次回は過去の確認値が推定より先に再利用されます。概算値と不明値は確定Foodへ自動昇格しません。
+
+購入・予定の食品は摂取数量が0の間、Daily calories、Nutrition Intelligence、Body Score、Canonical JSON、Food Encounterへ入りません。一部を食べた場合は摂取数量だけを換算します。不明食品は0 kcalではなく「不明」として件数を表示します。
+
+Daily Inputから生成したCanonical Schema 1.0は保存前にPR14 Validatorを直接通り、Compatibility normalization 0件の場合だけ保存できます。JSON ImportとCanonical PreviewはAdvanced用途として引き続き利用できます。
 
 ## Mode
 

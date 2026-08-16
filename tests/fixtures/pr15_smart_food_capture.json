@@ -1,0 +1,78 @@
+{
+  "fixture_version": "1.0",
+  "confirmed_foods": [
+    {
+      "name": "SAVAS BIO PRO ヨーグルト味 200ml",
+      "aliases": ["SAVAS BIO", "ザバスBIO"],
+      "quantity": 1,
+      "unit": "本",
+      "nutrition": {
+        "basis": "per_item",
+        "calories_kcal": 102,
+        "protein_g": 15.0,
+        "fat_g": 0,
+        "carbs_g": 10.6
+      }
+    },
+    {
+      "name": "伊藤園 理想のトマト",
+      "aliases": ["理想のトマト"],
+      "quantity": 1,
+      "unit": "本",
+      "nutrition": {
+        "basis": "per_item",
+        "calories_kcal": 70,
+        "protein_g": null,
+        "fat_g": null,
+        "carbs_g": null
+      }
+    },
+    {
+      "name": "オイコス PRO",
+      "aliases": ["OIKOS PRO", "オイコス"],
+      "quantity": 1,
+      "unit": "個",
+      "nutrition": {
+        "basis": "per_item",
+        "calories_kcal": 100,
+        "protein_g": 18,
+        "fat_g": 0,
+        "carbs_g": 7
+      }
+    }
+  ],
+  "quantity_case": {
+    "name": "みたらし団子",
+    "quantity": 2,
+    "unit": "本",
+    "per_item_kcal": 122,
+    "expected_kcal": 244
+  },
+  "unknown_case": {
+    "name": "ホテル朝食ブッフェ",
+    "expected_calories_kcal": null,
+    "expected_unknown_count": 1
+  },
+  "estimated_case": {
+    "name": "すだちそば",
+    "estimated_calories_kcal": 400
+  },
+  "purchased_case": {
+    "name": "みたらし団子",
+    "purchased_quantity": 3,
+    "consumed_quantity": 2,
+    "expected_kcal": 244
+  },
+  "operational_names": [
+    "CRAFT BOSS",
+    "Red Bull",
+    "GEORGIA BLACK",
+    "SAVAS",
+    "OIKOS",
+    "コンビニサラダ",
+    "Food Label",
+    "大戸屋",
+    "外食unknown"
+  ],
+  "alcohol_detail": "ビール1杯"
+}
