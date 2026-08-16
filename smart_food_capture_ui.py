@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import html
-from typing import Any
+from typing import Any, Callable
 
 import streamlit as st
 
@@ -220,6 +220,8 @@ def render_smart_food_capture(
     repository: FoodMasterRepository,
     user_id: str,
     knowledge: dict[str, Any],
+    *,
+    on_food_knowledge_changed: Callable[[], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Render the low-friction food workflow and return a copied capture state."""
     session_state = getattr(st, "session_state", None)
@@ -308,6 +310,8 @@ def render_smart_food_capture(
                 stored = confirm_capture_food(repository, user_id, prepared)
                 prepared["food_id"] = stored.get("food_id")
                 prepared["source_detail"] = "過去の確認値"
+                if on_food_knowledge_changed is not None:
+                    on_food_knowledge_changed()
             items.append(prepared)
             st.session_state[CAPTURE_STATE_KEY] = items
             st.rerun()

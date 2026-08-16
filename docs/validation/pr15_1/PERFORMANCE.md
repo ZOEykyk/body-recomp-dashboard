@@ -129,3 +129,32 @@ increase correctness risk without a measurable user benefit.
 - External writes from another worker may remain stale for at most the 30-second Personal Food TTL.
 - OCR/Vision latency is not part of PR15.1. The instrumentation and cached Food
   Knowledge boundary are ready to separate OCR cost from Resolver and persistence cost in PR16.
+
+## Acceptance Regression: Immediate Confirmed Search
+
+Acceptance testing found that the Personal Food cache depended only on the
+currently active backend's process-local revision. In `fallback_json` mode, a
+transition such as primary revision `1` to fallback revision `1` could reuse the
+same `(user_id, revision)` cache key even though the underlying data changed.
+Smart Food Capture also had no explicit cache invalidation callback after
+`confirm_capture_food()`.
+
+The fallback adapter now owns one monotonic revision across primary/fallback
+transitions, and the Smart Food Capture confirmation path explicitly clears the
+Personal Food cache before `st.rerun()`. Revision remains the normal cache key;
+explicit clearing is a guard against stale process-local entries.
+
+Validated without waiting for the 30-second TTL:
+
+| Repository path | Revision | Result |
+|---|---:|---|
+| Local JSON | `0 -> 1` | immediate `personal_master` hit |
+| Supabase adapter | `0 -> 1` | immediate `personal_master` hit |
+| Primary to fallback switch | `1 -> 2` | immediate `personal_master` hit |
+
+The saved snapshot contains one active `PR15.1テスト バナナ②` record and one
+verified `explicit_user_label` nutrition source. Re-search restores `99 kcal`,
+`P 3.0 g`, `F 0.5 g`, `C 13.0 g`, `per_item`, `過去の確認値`, and `High`.
+The actual Streamlit component was also exercised: the save rerun completed in
+263 ms, displayed revision `1`, and immediately replaced the Unknown candidate
+with the Personal Food Master candidate. Browser console errors were zero.

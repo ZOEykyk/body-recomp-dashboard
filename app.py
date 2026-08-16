@@ -413,6 +413,11 @@ def current_food_knowledge() -> dict[str, Any]:
     }
 
 
+def invalidate_personal_food_cache() -> None:
+    """Make confirmed Food Knowledge visible on the immediately following rerun."""
+    clear_cached_function(cached_personal_foods)
+
+
 def estimate_calorie_detail(
     text: str,
     meal_type: str = "",
@@ -1276,6 +1281,7 @@ smart_capture_items = render_smart_food_capture(
     PERSONAL_FOOD_REPOSITORY,
     PERSONAL_FOOD_USER_ID,
     active_food_knowledge,
+    on_food_knowledge_changed=invalidate_personal_food_cache,
 )
 with st.form("daily_record_form"):
     basic_col1, basic_col2 = st.columns(2)

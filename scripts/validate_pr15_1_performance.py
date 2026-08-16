@@ -18,10 +18,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from food_master_repository import JsonFoodMasterRepository  # noqa: E402
+from food_repository_factory import FallbackFoodMasterRepository  # noqa: E402
 from food_resolver import build_food_knowledge_snapshot, resolve_food_text  # noqa: E402
 from food_source_models import internal_nutrition_source  # noqa: E402
 from dashboard import prepare_dashboard_projection  # noqa: E402
 from nutrition_intelligence import analyze_nutrition  # noqa: E402
+from personal_food_master import confirm_capture_food  # noqa: E402
+from scripts.validate_pr12 import FakeSupabaseClient  # noqa: E402
 from smart_food_capture import (  # noqa: E402
     calculate_daily_nutrition,
     canonical_builder_result,
@@ -30,6 +33,7 @@ from smart_food_capture import (  # noqa: E402
     unknown_candidate,
 )
 from workout_intelligence import analyze_workout  # noqa: E402
+from supabase_food_master_repository import SupabaseFoodMasterRepository  # noqa: E402
 
 
 ITERATIONS = 25
@@ -134,6 +138,74 @@ def capture_items() -> list[dict[str, Any]]:
             )
         )
     return items
+
+
+def confirmed_label_item(name: str) -> dict[str, Any]:
+    return prepare_capture_item(
+        unknown_candidate(name, "snacks"),
+        meal_type="snacks",
+        quantity=1,
+        unit="本",
+        consumed_quantity=1,
+        nutrition={
+            "basis": "per_item",
+            "calories_kcal": 99,
+            "protein_g": 3.0,
+            "fat_g": 0.5,
+            "carbs_g": 13.0,
+            "sugar_g": None,
+            "fiber_g": None,
+            "salt_g": None,
+        },
+        source_mode="user_label",
+    )
+
+
+def cached_knowledge(
+    repository: Any,
+    user_id: str,
+    cache: dict[tuple[str, int], dict[str, Any]],
+) -> dict[str, Any]:
+    key = (user_id, repository.cache_revision())
+    if key not in cache:
+        snapshot = repository.build_snapshot(user_id)
+        cache[key] = build_food_knowledge_snapshot(snapshot["personal_foods"])
+    return cache[key]
+
+
+def validate_immediate_confirmed_search(repository: Any, label: str) -> tuple[int, int, dict[str, Any]]:
+    user_id = f"immediate-{label}"
+    name = "PR15.1テスト バナナ②"
+    cache: dict[tuple[str, int], dict[str, Any]] = {}
+    check(not search_food_candidates(name, cached_knowledge(repository, user_id, cache)), f"{label}: initial search miss")
+    revision_before = repository.cache_revision()
+    confirm_capture_food(repository, user_id, confirmed_label_item(name), now="2026-08-17T00:00:00+00:00")
+    revision_after = repository.cache_revision()
+    check(revision_after == revision_before + 1, f"{label}: confirmed save increments revision")
+    knowledge = cached_knowledge(repository, user_id, cache)
+    stored = [food for food in knowledge["personal_foods"] if food.get("canonical_name") == name]
+    check(len(stored) == 1 and stored[0].get("status") == "active", f"{label}: next snapshot contains active food")
+    check(len(stored[0].get("nutrition_sources") or []) == 1, f"{label}: snapshot retains nutrition source")
+    matches = search_food_candidates(name, knowledge)
+    check(bool(matches), f"{label}: immediate search hit without TTL wait")
+    match = matches[0]
+    check(match["source_type"] == "personal_master", f"{label}: search returns Personal Food Master")
+    check(match["source_detail"] == "過去の確認値" and match["confidence"] == "high", f"{label}: confirmed presentation restored")
+    check(
+        match["nutrition"]
+        == {
+            "basis": "per_item",
+            "calories_kcal": 99.0,
+            "protein_g": 3.0,
+            "fat_g": 0.5,
+            "carbs_g": 13.0,
+            "sugar_g": None,
+            "fiber_g": None,
+            "salt_g": None,
+        },
+        f"{label}: calories and P/F/C restored",
+    )
+    return revision_before, revision_after, match
 
 
 def main() -> None:
@@ -242,6 +314,48 @@ def main() -> None:
         check(projection_before["steps"] != 12000, "dashboard fixture starts with the stored steps value")
         check(projection_after["steps"] == 12000, "changed records bypass stale dashboard cache immediately")
 
+        immediate_results: dict[str, dict[str, Any]] = {}
+        immediate_json = JsonFoodMasterRepository(
+            Path(temp_dir) / "immediate-foods.json",
+            Path(temp_dir) / "immediate-encounters.jsonl",
+        )
+        before, after, match = validate_immediate_confirmed_search(immediate_json, "json")
+        immediate_results["json"] = {"revision_before": before, "revision_after": after, "source_type": match["source_type"]}
+
+        immediate_supabase = SupabaseFoodMasterRepository(FakeSupabaseClient())
+        before, after, match = validate_immediate_confirmed_search(immediate_supabase, "supabase")
+        immediate_results["supabase"] = {"revision_before": before, "revision_after": after, "source_type": match["source_type"]}
+
+        switching_client = FakeSupabaseClient()
+        switching_primary = SupabaseFoodMasterRepository(switching_client)
+        switching_fallback = FallbackFoodMasterRepository(
+            switching_primary,
+            JsonFoodMasterRepository(
+                Path(temp_dir) / "fallback-foods.json",
+                Path(temp_dir) / "fallback-encounters.jsonl",
+            ),
+        )
+        confirm_capture_food(
+            switching_fallback,
+            "revision-seed-user",
+            confirmed_label_item("revision seed"),
+            now="2026-08-17T00:00:00+00:00",
+        )
+        original_request = switching_client.request
+
+        def fail_primary_write(method: str, path: str, *, payload: Any = None, prefer: Any = None) -> Any:
+            if method == "POST" and path.startswith("rpc/upsert_food_knowledge_v1"):
+                raise RuntimeError("intentional primary write failure")
+            return original_request(method, path, payload=payload, prefer=prefer)
+
+        switching_client.request = fail_primary_write
+        before, after, match = validate_immediate_confirmed_search(switching_fallback, "fallback-switch")
+        immediate_results["fallback_switch"] = {
+            "revision_before": before,
+            "revision_after": after,
+            "source_type": match["source_type"],
+        }
+
     check((ROOT / "records.csv").read_bytes() == records_before, "records.csv unchanged")
     result = {
         "environment": {
@@ -260,6 +374,7 @@ def main() -> None:
             "capture_items": len(items),
         },
         "measurements": measurements,
+        "immediate_confirmed_search": immediate_results,
     }
     print("PERFORMANCE_JSON=" + json.dumps(result, ensure_ascii=False, sort_keys=True))
 
