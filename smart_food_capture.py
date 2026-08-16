@@ -54,6 +54,16 @@ def normalize_capture_unit(value: Any) -> str | None:
     return aliases.get(text, text) or None
 
 
+def default_capture_nutrition_basis(unit: Any) -> str:
+    """Return the deterministic basis used by the UI's per-unit nutrition fields."""
+    normalized_unit = normalize_capture_unit(unit)
+    if normalized_unit == "g":
+        return "per_100g"
+    if normalized_unit == "ml":
+        return "per_100ml"
+    return "per_item"
+
+
 def _nutrition(value: Any, *, basis: str = "unknown") -> dict[str, Any]:
     source = value if isinstance(value, dict) else {}
     return {
@@ -328,6 +338,12 @@ def prepare_capture_item(
         source_type = "estimated"
     else:
         source_type = str(candidate.get("source_type") or "unknown")
+    if (
+        edited_nutrition.get("basis") == "unknown"
+        and source_type in {"user_label", "estimated"}
+        and any(edited_nutrition.get(field) is not None for field in NUTRITION_FIELDS)
+    ):
+        edited_nutrition["basis"] = default_capture_nutrition_basis(prepared["unit"])
     presentation = source_presentation(source_type)
     prepared.update(
         {

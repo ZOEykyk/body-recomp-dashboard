@@ -11,6 +11,7 @@ from personal_food_master import confirm_capture_food
 from smart_food_capture import (
     MEAL_LABELS,
     calculate_daily_nutrition,
+    default_capture_nutrition_basis,
     prepare_capture_item,
     search_food_candidates,
     source_presentation,
@@ -161,6 +162,8 @@ def _render_capture_card(item: dict[str, Any], index: int, items: list[dict[str,
         fat = _nutrition_input("1単位あたり Fat", nutrition.get("fat_g"), f"capture-f-{capture_id}")
         carbs = _nutrition_input("1単位あたり Carbs", nutrition.get("carbs_g"), f"capture-c-{capture_id}")
         basis_value = str(nutrition.get("basis") or "unknown")
+        if basis_value == "unknown" and item.get("source_type") in {"user_label", "estimated"}:
+            basis_value = default_capture_nutrition_basis(unit)
         basis = st.selectbox(
             "栄養値の基準", BASIS_OPTIONS,
             index=BASIS_OPTIONS.index(basis_value) if basis_value in BASIS_OPTIONS else BASIS_OPTIONS.index("unknown"),
@@ -260,6 +263,8 @@ def render_smart_food_capture(
         fat = _nutrition_input("1単位あたり Fat", nutrition.get("fat_g"), f"new-f-{editor_key}")
         carbs = _nutrition_input("1単位あたり Carbs", nutrition.get("carbs_g"), f"new-c-{editor_key}")
         basis_value = str(nutrition.get("basis") or "unknown")
+        if basis_value == "unknown":
+            basis_value = default_capture_nutrition_basis(unit)
         basis = st.selectbox(
             "栄養値の基準", BASIS_OPTIONS,
             index=BASIS_OPTIONS.index(basis_value) if basis_value in BASIS_OPTIONS else BASIS_OPTIONS.index("unknown"),

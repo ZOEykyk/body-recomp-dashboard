@@ -20,6 +20,7 @@ from smart_food_capture import (  # noqa: E402
     canonical_builder_result,
     canonical_workout_from_text,
     candidates_from_resolution,
+    default_capture_nutrition_basis,
     prepare_capture_item,
     search_food_candidates,
     unknown_candidate,
@@ -154,6 +155,82 @@ def main() -> None:
             capture_id=planned["capture_id"],
         )
         check(calculate_daily_nutrition([partial])["totals"]["calories_kcal"] == 244, "only consumed quantity is included")
+
+        label_values = {
+            "basis": "unknown",
+            "calories_kcal": 122,
+            "protein_g": 2.4,
+            "fat_g": 0.6,
+            "carbs_g": 27.5,
+            "sugar_g": None,
+            "fiber_g": None,
+            "salt_g": None,
+        }
+        label_item = prepare_capture_item(
+            unknown_candidate("PR15 TEST 団子", "snacks"),
+            meal_type="snacks",
+            quantity=3,
+            unit="本",
+            consumed_quantity=2,
+            nutrition=label_values,
+            source_mode="user_label",
+        )
+        check(default_capture_nutrition_basis("本") == "per_item", "discrete UI unit defaults to per-item basis")
+        check(label_item["source_type"] == "user_label", "new label nutrition remains user-confirmed")
+        check(label_item["nutrition"]["basis"] == "per_item", "new label nutrition receives a scalable basis")
+        label_daily = calculate_daily_nutrition([label_item])
+        check(
+            label_daily["totals"]
+            == {
+                "calories_kcal": 244.0,
+                "protein_g": 4.8,
+                "fat_g": 1.2,
+                "carbs_g": 55.0,
+                "sugar_g": None,
+                "fiber_g": None,
+                "salt_g": None,
+            },
+            "three purchased and two consumed scales all entered nutrition",
+        )
+        check(label_daily["unknown_count"] == 0, "known label calories and macros are not unknown")
+        label_builder = canonical_builder_result(
+            {"date": "2026-08-16", "workout": {"performed": False, "exercises": []}},
+            [label_item],
+        )
+        canonical_label = label_builder["canonical"]["meals"]["snacks"][0]
+        check(label_builder["validation_passed"], "label capture Canonical record validates")
+        check(label_builder["normalization_changes"] == [], "label capture Canonical record needs zero normalization")
+        check(canonical_label["quantity"] == 2.0, "Canonical food quantity uses consumed quantity")
+        check(canonical_label["nutrition"]["calories_kcal"] == 244.0, "Canonical calories use consumed total")
+        check(canonical_label["nutrition"]["protein_g"] == 4.8, "Canonical protein uses consumed total")
+        check(canonical_label["nutrition"]["fat_g"] == 1.2, "Canonical fat uses consumed total")
+        check(canonical_label["nutrition"]["carbs_g"] == 55.0, "Canonical carbs use consumed total")
+
+        saved_label = confirm_capture_food(
+            repository,
+            user_id,
+            label_item,
+            now="2026-08-16T02:00:00+00:00",
+        )
+        label_knowledge = build_food_knowledge_snapshot(repository.list_foods(user_id))
+        label_suggestions = search_food_candidates("PR15 TEST 団子", label_knowledge)
+        restored = label_suggestions[0]
+        check(saved_label["status"] == "active", "confirmed label food is active in Personal Food Master")
+        check(restored["source_type"] == "personal_master", "confirmed label food is restored from Personal Food Master")
+        check(
+            restored["nutrition"]
+            == {
+                "basis": "per_item",
+                "calories_kcal": 122.0,
+                "protein_g": 2.4,
+                "fat_g": 0.6,
+                "carbs_g": 27.5,
+                "sugar_g": None,
+                "fiber_g": None,
+                "salt_g": None,
+            },
+            "re-search restores confirmed calories and PFC",
+        )
 
         unknown = prepare_capture_item(
             unknown_candidate(fixture["unknown_case"]["name"], "breakfast"),
