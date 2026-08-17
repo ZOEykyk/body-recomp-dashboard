@@ -59,7 +59,11 @@ from smart_food_capture import (
     prepare_capture_item,
     unknown_candidate,
 )
-from smart_food_capture_ui import CAPTURE_STATE_KEY, render_smart_food_capture
+from smart_food_capture_ui import (
+    CAPTURE_STATE_KEY,
+    render_food_knowledge_debug_panel,
+    render_smart_food_capture,
+)
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
@@ -1742,6 +1746,7 @@ show_food_knowledge_tools = st.toggle("Food Knowledge詳細を表示", value=Fal
 if show_food_knowledge_tools:
     render_food_knowledge_dashboard(PERSONAL_FOOD_REPOSITORY, PERSONAL_FOOD_USER_ID)
     render_food_master_management(PERSONAL_FOOD_REPOSITORY, PERSONAL_FOOD_USER_ID)
+    render_food_knowledge_debug_panel()
 
 if performance_debug_enabled():
     with st.expander("Performance Debug", expanded=False):

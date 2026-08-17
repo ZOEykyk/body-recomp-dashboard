@@ -25,8 +25,9 @@ from smart_food_capture import (
 
 
 CAPTURE_STATE_KEY = "bodyos_smart_food_capture_items"
-FOOD_KNOWLEDGE_DEBUG_KEY = "bodyos_food_knowledge_debug_enabled"
 FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY = "bodyos_food_knowledge_last_save_debug"
+FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY = "bodyos_food_knowledge_runtime_debug"
+FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY = "bodyos_food_knowledge_search_debug"
 SOURCE_MODE_OPTIONS = {
     "候補の値を使用": "candidate",
     "商品ラベルで確認": "user_label",
@@ -135,14 +136,16 @@ def _render_totals(items: list[dict[str, Any]]) -> dict[str, Any]:
     return aggregate
 
 
-def _render_food_knowledge_debug(
-    runtime: dict[str, Any],
-    last_save: dict[str, Any] | None,
-    search: dict[str, Any],
-) -> None:
-    enabled = st.checkbox("Food Knowledge診断を表示", key=FOOD_KNOWLEDGE_DEBUG_KEY)
-    if not enabled:
-        return
+def render_food_knowledge_debug_panel() -> None:
+    """Render the latest save/search diagnostics inside Food Knowledge details."""
+    session_state = getattr(st, "session_state", {})
+    runtime = deepcopy(session_state.get(FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY) or {})
+    last_save = deepcopy(session_state.get(FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY))
+    search = deepcopy(session_state.get(FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY) or {})
+    revision = str(runtime.get("source_revision") or "unavailable")
+    version = str(runtime.get("diagnostics_version") or "unavailable")
+    st.markdown("### Food Knowledge Diagnostics")
+    st.caption(f"Diagnostics {version} / Source revision `{revision}`")
     st.caption("Secrets、食品名、栄養値は表示しません。Cloud保存・再読込・候補除外のメタデータのみです。")
     with st.expander("Food Knowledge Debug", expanded=True):
         st.json(
@@ -282,6 +285,8 @@ def render_smart_food_capture(
             ],
         }
     )
+    session_state[FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY] = runtime
+    session_state[FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY] = deepcopy(search_diagnostics)
     if suggestions:
         options = [candidate["candidate_id"] for candidate in suggestions]
         by_id = {candidate["candidate_id"]: candidate for candidate in suggestions}
@@ -376,13 +381,14 @@ def render_smart_food_capture(
     for index, item in enumerate(list(items)):
         _render_capture_card(item, index, items)
     _render_totals(items)
-    _render_food_knowledge_debug(runtime, last_save_diagnostics, search_diagnostics)
     return deepcopy(st.session_state.get(CAPTURE_STATE_KEY) or items)
 
 
 __all__ = [
     "CAPTURE_STATE_KEY",
-    "FOOD_KNOWLEDGE_DEBUG_KEY",
     "FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY",
+    "FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY",
+    "FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY",
+    "render_food_knowledge_debug_panel",
     "render_smart_food_capture",
 ]

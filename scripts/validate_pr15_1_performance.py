@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 from food_master_repository import JsonFoodMasterRepository  # noqa: E402
 from food_knowledge_diagnostics import (  # noqa: E402
+    FOOD_KNOWLEDGE_DIAGNOSTICS_VERSION,
     confirmed_save_diagnostics,
     food_knowledge_user_key,
     repository_runtime_diagnostics,
@@ -242,6 +243,11 @@ def validate_immediate_confirmed_search(repository: Any, label: str) -> tuple[in
         cached_personal_food_count=len(knowledge["personal_foods"]),
     )
     check(runtime_diagnostics["cache_revision"] == revision_after, f"{label}: runtime diagnostics expose revision")
+    check(
+        runtime_diagnostics["diagnostics_version"] == FOOD_KNOWLEDGE_DIAGNOSTICS_VERSION,
+        f"{label}: Cloud diagnostics expose their build version",
+    )
+    check(runtime_diagnostics["source_revision"] != "unavailable", f"{label}: deployed source revision is observable")
     check(
         runtime_diagnostics["cached_personal_food_count"] == runtime_diagnostics["knowledge_personal_food_count"] == 1,
         f"{label}: cached and active knowledge counts are observable",

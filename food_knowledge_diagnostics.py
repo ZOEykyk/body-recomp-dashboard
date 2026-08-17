@@ -1,9 +1,35 @@
 from __future__ import annotations
 
 import hashlib
+from functools import lru_cache
+import os
+import subprocess
 from typing import Any
 
 from food_source_policy import select_nutrition_source
+
+
+FOOD_KNOWLEDGE_DIAGNOSTICS_VERSION = "pr15.1-cloud-v2"
+
+
+@lru_cache(maxsize=1)
+def runtime_source_revision() -> str:
+    """Return the deployed source revision without exposing environment values."""
+    for name in ("STREAMLIT_GIT_COMMIT", "GIT_COMMIT", "COMMIT_SHA"):
+        value = str(os.environ.get(name) or "").strip()
+        if value:
+            return value[:12]
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unavailable"
+    return result.stdout.strip() or "unavailable"
 
 
 def food_knowledge_user_key(user_id: str) -> str:
@@ -72,6 +98,8 @@ def repository_runtime_diagnostics(
     personal_foods = (knowledge or {}).get("personal_foods") or []
     status = _repository_status(repository)
     return {
+        "diagnostics_version": FOOD_KNOWLEDGE_DIAGNOSTICS_VERSION,
+        "source_revision": runtime_source_revision(),
         "repository_type": type(repository).__name__,
         "repository_status": status,
         "fallback_active": status["connection"] == "Fallback",
@@ -130,7 +158,9 @@ def confirmed_save_diagnostics(
 
 
 __all__ = [
+    "FOOD_KNOWLEDGE_DIAGNOSTICS_VERSION",
     "confirmed_save_diagnostics",
     "food_knowledge_user_key",
     "repository_runtime_diagnostics",
+    "runtime_source_revision",
 ]

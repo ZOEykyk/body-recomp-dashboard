@@ -161,10 +161,12 @@ with the Personal Food Master candidate. Browser console errors were zero.
 
 ## Streamlit Cloud Food Knowledge Diagnostics
 
-The local adapter regression passes but the hosted failure remains reproducible,
-so Smart Food Capture now includes an opt-in `Food Knowledge診断を表示` panel.
-It reports metadata from the production save, readback, cache, and search paths;
-it never reports credentials, raw user IDs, food names, or nutrition values.
+The local adapter regression passes but the hosted failure remains reproducible.
+Enabling the existing `Food Knowledge詳細を表示` toggle now renders a
+`Food Knowledge Diagnostics` panel below Personal Food Master. The panel shows
+its diagnostics version and deployed source revision before reporting metadata
+from the production save, readback, cache, and search paths. It never reports
+credentials, raw user IDs, food names, or nutrition values.
 
 Use the panel immediately after a confirmed-label save and again with the same
 search text:
