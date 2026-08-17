@@ -41,6 +41,7 @@ from data_integrity import (
 )
 from dashboard import render_dashboard
 from food_master_repository import JsonFoodMasterRepository
+from food_knowledge_diagnostics import repository_runtime_diagnostics
 from food_repository_factory import create_food_master_repository
 from food_master_models import meal_content_fingerprint
 from food_master_ui import render_food_master_management
@@ -1257,6 +1258,12 @@ def predict_target_date(data: pd.DataFrame, target_weight: float) -> str:
 with measure("app.bootstrap"):
     df = load_data()
     active_food_knowledge = current_food_knowledge()
+food_knowledge_runtime = repository_runtime_diagnostics(
+    PERSONAL_FOOD_REPOSITORY,
+    PERSONAL_FOOD_USER_ID,
+    active_food_knowledge,
+    cached_personal_food_count=len(active_food_knowledge.get("personal_foods") or []),
+)
 storage_config = github_storage_config()
 if github_storage_enabled():
     st.caption(f"保存先: GitHub `{storage_config['repository']}/{storage_config['path']}` ({storage_config['branch']})")
@@ -1282,6 +1289,7 @@ smart_capture_items = render_smart_food_capture(
     PERSONAL_FOOD_USER_ID,
     active_food_knowledge,
     on_food_knowledge_changed=invalidate_personal_food_cache,
+    runtime_diagnostics=food_knowledge_runtime,
 )
 with st.form("daily_record_form"):
     basic_col1, basic_col2 = st.columns(2)

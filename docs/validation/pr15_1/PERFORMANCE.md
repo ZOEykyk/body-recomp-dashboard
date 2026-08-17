@@ -158,3 +158,30 @@ verified `explicit_user_label` nutrition source. Re-search restores `99 kcal`,
 The actual Streamlit component was also exercised: the save rerun completed in
 263 ms, displayed revision `1`, and immediately replaced the Unknown candidate
 with the Personal Food Master candidate. Browser console errors were zero.
+
+## Streamlit Cloud Food Knowledge Diagnostics
+
+The local adapter regression passes but the hosted failure remains reproducible,
+so Smart Food Capture now includes an opt-in `Food Knowledge診断を表示` panel.
+It reports metadata from the production save, readback, cache, and search paths;
+it never reports credentials, raw user IDs, food names, or nutrition values.
+
+Use the panel immediately after a confirmed-label save and again with the same
+search text:
+
+- `repository_status.connection = Fallback` identifies a Supabase-to-local switch.
+- Different save/search `user_key` values identify owner configuration drift.
+- `post_save_snapshot_contains_food = false` means the returned save object was
+  not visible from the repository snapshot used for the next read.
+- A lower `cached_personal_food_count` or missing `food_id` in the current
+  knowledge trace identifies a stale or different read snapshot.
+- `drop_reason = inactive` identifies a non-active stored record.
+- `drop_reason = source_not_selected` plus `source_selection_status` identifies
+  invalid, expired, conflicting, or absent nutrition source metadata.
+- `drop_reason = included` confirms that Personal Food candidate construction
+  succeeded and shifts investigation to Streamlit widget/display state.
+
+The panel is diagnostic instrumentation, not a second lookup implementation:
+candidate results and drop reasons are emitted by the same search loop used by
+the UI. The definitive hosted root cause remains unconfirmed until these values
+are captured from the failing Streamlit Cloud process.

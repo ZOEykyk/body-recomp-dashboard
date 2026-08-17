@@ -212,8 +212,11 @@ def unknown_candidate(name: str, meal_type: str = "snacks") -> dict[str, Any]:
     return _candidate_from_selected(item, None, origin="fallback", meal_type=meal_type, accept_estimate=False)
 
 
-def _suggestion_from_personal(food: dict[str, Any]) -> dict[str, Any] | None:
-    selection = select_nutrition_source(food.get("nutrition_sources") or [])
+def _suggestion_from_personal(
+    food: dict[str, Any],
+    selection: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    selection = selection or select_nutrition_source(food.get("nutrition_sources") or [])
     selected = selection.get("selected") or {}
     if not selected:
         return None
@@ -258,32 +261,94 @@ def _suggestion_from_catalog(food: dict[str, Any], origin: str) -> dict[str, Any
     return candidate
 
 
-@instrument("food_search.candidates")
-def search_food_candidates(
+def _source_types(food: dict[str, Any]) -> list[str]:
+    return sorted(
+        {
+            str(source.get("source", {}).get("source_type") or "unknown")
+            for source in (food.get("nutrition_sources") or [])
+            if isinstance(source, dict)
+        }
+    )
+
+
+def _search_food_candidates(
     query: str,
     knowledge: dict[str, Any],
     *,
     limit: int = 8,
-) -> list[dict[str, Any]]:
-    """Return Personal/Frequent/Recent/Official/Generic suggestions in deterministic order."""
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     needle = _compact(query)
+    personal_foods = (knowledge or {}).get("personal_foods") or []
+    diagnostics: dict[str, Any] = {
+        "query_present": bool(needle),
+        "personal_food_count": len(personal_foods),
+        "active_personal_food_count": sum(
+            food.get("status") == "active" for food in personal_foods
+        ),
+        "personal_name_match_count": 0,
+        "personal_source_selected_count": 0,
+        "personal_candidate_count": 0,
+        "candidate_count": 0,
+        "personal_trace": [],
+    }
     if not needle:
-        return []
-    ranked: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    for food in (knowledge or {}).get("personal_foods") or []:
+        return [], diagnostics
+    ranked: list[tuple[tuple[Any, ...], dict[str, Any], dict[str, Any] | None]] = []
+    for food in personal_foods:
+        canonical_match = needle in _compact(food.get("canonical_name"))
+        alias_match = any(
+            needle in _compact(alias)
+            for alias in (food.get("aliases") or [])
+            if _compact(alias)
+        )
+        name_match = canonical_match or alias_match
+        trace = {
+            "food_id": str(food.get("food_id") or ""),
+            "status": str(food.get("status") or "missing"),
+            "nutrition_source_count": len(food.get("nutrition_sources") or []),
+            "source_types": _source_types(food),
+            "canonical_name_match": canonical_match,
+            "alias_match": alias_match,
+            "name_match": name_match,
+            "source_selection_status": "not_evaluated",
+            "source_selected": False,
+            "selected_source_type": None,
+            "drop_reason": None,
+        }
         if food.get("status") != "active":
+            trace["drop_reason"] = "inactive"
+            if name_match:
+                diagnostics["personal_name_match_count"] += 1
+                diagnostics["personal_trace"].append(trace)
             continue
-        values = [food.get("canonical_name"), *(food.get("aliases") or [])]
-        keys = [_compact(value) for value in values if _compact(value)]
-        if not any(needle in key for key in keys):
+        if not name_match:
             continue
-        candidate = _suggestion_from_personal(food)
+        diagnostics["personal_name_match_count"] += 1
+        selection = select_nutrition_source(food.get("nutrition_sources") or [])
+        selected = selection.get("selected") or {}
+        selected_source = selected.get("source") if isinstance(selected, dict) else None
+        trace.update(
+            {
+                "source_selection_status": str(selection.get("status") or "unknown"),
+                "source_selected": bool(selected),
+                "selected_source_type": (
+                    str(selected_source.get("source_type") or "unknown")
+                    if isinstance(selected_source, dict) and selected
+                    else None
+                ),
+            }
+        )
+        candidate = _suggestion_from_personal(food, selection)
         if candidate is None:
+            trace["drop_reason"] = "source_not_selected"
+            diagnostics["personal_trace"].append(trace)
             continue
+        diagnostics["personal_source_selected_count"] += 1
         usage = int(candidate.get("usage_count") or 0)
         recent = str(candidate.get("last_used_at") or "")
         candidate["rank_reason"] = "frequently_used" if usage > 0 else "personal_master"
-        ranked.append(((0, -usage, _recency_rank(recent), candidate["display_name"]), candidate))
+        ranked.append(((0, -usage, _recency_rank(recent), candidate["display_name"]), candidate, trace))
+        diagnostics["personal_trace"].append(trace)
 
     for origin, foods, tier in (
         ("official", (knowledge or {}).get("official_catalog") or [], 3),
@@ -295,22 +360,52 @@ def search_food_candidates(
                 continue
             candidate = _suggestion_from_catalog(food, origin)
             candidate["rank_reason"] = origin
-            ranked.append(((tier, 0, 0.0, candidate["display_name"]), candidate))
+            ranked.append(((tier, 0, 0.0, candidate["display_name"]), candidate, None))
 
     ranked.sort(key=lambda value: value[0])
     unique: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str, str]] = set()
-    for _, candidate in ranked:
+    for _, candidate, trace in ranked:
         identity = tuple(
             _compact(candidate.get(field)) for field in ("brand", "canonical_name", "variant", "size")
         )
         if identity in seen:
+            if trace is not None:
+                trace["drop_reason"] = "duplicate_identity"
+            continue
+        if len(unique) >= max(int(limit), 0):
+            if trace is not None:
+                trace["drop_reason"] = "outside_limit"
             continue
         seen.add(identity)
         unique.append(candidate)
-        if len(unique) >= max(int(limit), 0):
-            break
-    return unique
+        if trace is not None:
+            trace["drop_reason"] = "included"
+            diagnostics["personal_candidate_count"] += 1
+    diagnostics["candidate_count"] = len(unique)
+    return unique, diagnostics
+
+
+@instrument("food_search.candidates")
+def search_food_candidates(
+    query: str,
+    knowledge: dict[str, Any],
+    *,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """Return Personal/Frequent/Recent/Official/Generic suggestions in deterministic order."""
+    return _search_food_candidates(query, knowledge, limit=limit)[0]
+
+
+@instrument("food_search.candidates_with_diagnostics")
+def search_food_candidates_with_diagnostics(
+    query: str,
+    knowledge: dict[str, Any],
+    *,
+    limit: int = 8,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Return candidates plus metadata-only diagnostics from the same search path."""
+    return _search_food_candidates(query, knowledge, limit=limit)
 
 
 def prepare_capture_item(
@@ -591,6 +686,7 @@ __all__ = [
     "normalize_capture_unit",
     "prepare_capture_item",
     "search_food_candidates",
+    "search_food_candidates_with_diagnostics",
     "source_presentation",
     "unknown_candidate",
 ]

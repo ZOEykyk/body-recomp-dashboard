@@ -18,6 +18,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from food_master_repository import JsonFoodMasterRepository  # noqa: E402
+from food_knowledge_diagnostics import (  # noqa: E402
+    confirmed_save_diagnostics,
+    food_knowledge_user_key,
+    repository_runtime_diagnostics,
+)
 from food_repository_factory import FallbackFoodMasterRepository  # noqa: E402
 from food_resolver import build_food_knowledge_snapshot, resolve_food_text  # noqa: E402
 from food_source_models import internal_nutrition_source  # noqa: E402
@@ -30,6 +35,7 @@ from smart_food_capture import (  # noqa: E402
     canonical_builder_result,
     prepare_capture_item,
     search_food_candidates,
+    search_food_candidates_with_diagnostics,
     unknown_candidate,
 )
 from workout_intelligence import analyze_workout  # noqa: E402
@@ -179,14 +185,19 @@ def validate_immediate_confirmed_search(repository: Any, label: str) -> tuple[in
     cache: dict[tuple[str, int], dict[str, Any]] = {}
     check(not search_food_candidates(name, cached_knowledge(repository, user_id, cache)), f"{label}: initial search miss")
     revision_before = repository.cache_revision()
-    confirm_capture_food(repository, user_id, confirmed_label_item(name), now="2026-08-17T00:00:00+00:00")
+    stored_food = confirm_capture_food(
+        repository,
+        user_id,
+        confirmed_label_item(name),
+        now="2026-08-17T00:00:00+00:00",
+    )
     revision_after = repository.cache_revision()
     check(revision_after == revision_before + 1, f"{label}: confirmed save increments revision")
     knowledge = cached_knowledge(repository, user_id, cache)
     stored = [food for food in knowledge["personal_foods"] if food.get("canonical_name") == name]
     check(len(stored) == 1 and stored[0].get("status") == "active", f"{label}: next snapshot contains active food")
     check(len(stored[0].get("nutrition_sources") or []) == 1, f"{label}: snapshot retains nutrition source")
-    matches = search_food_candidates(name, knowledge)
+    matches, search_diagnostics = search_food_candidates_with_diagnostics(name, knowledge)
     check(bool(matches), f"{label}: immediate search hit without TTL wait")
     match = matches[0]
     check(match["source_type"] == "personal_master", f"{label}: search returns Personal Food Master")
@@ -204,6 +215,50 @@ def validate_immediate_confirmed_search(repository: Any, label: str) -> tuple[in
             "salt_g": None,
         },
         f"{label}: calories and P/F/C restored",
+    )
+    check(search_diagnostics["personal_name_match_count"] == 1, f"{label}: diagnostics observe name match")
+    check(search_diagnostics["personal_source_selected_count"] == 1, f"{label}: diagnostics observe selected source")
+    check(
+        search_diagnostics["personal_trace"][0]["drop_reason"] == "included",
+        f"{label}: diagnostics observe candidate inclusion",
+    )
+    save_diagnostics = confirmed_save_diagnostics(
+        repository,
+        user_id,
+        stored_food,
+        revision_before=revision_before,
+    )
+    check(save_diagnostics["food_id"] == stored_food["food_id"], f"{label}: diagnostics retain stored food_id")
+    check(save_diagnostics["post_save_snapshot_contains_food"], f"{label}: diagnostics verify persisted snapshot")
+    check(save_diagnostics["snapshot_status"] == "active", f"{label}: diagnostics expose active status")
+    check(
+        save_diagnostics["snapshot_selection"]["selected_source_type"] == "explicit_user_label",
+        f"{label}: diagnostics expose selected source type",
+    )
+    runtime_diagnostics = repository_runtime_diagnostics(
+        repository,
+        user_id,
+        knowledge,
+        cached_personal_food_count=len(knowledge["personal_foods"]),
+    )
+    check(runtime_diagnostics["cache_revision"] == revision_after, f"{label}: runtime diagnostics expose revision")
+    check(
+        runtime_diagnostics["cached_personal_food_count"] == runtime_diagnostics["knowledge_personal_food_count"] == 1,
+        f"{label}: cached and active knowledge counts are observable",
+    )
+    check(
+        runtime_diagnostics["user_key"] == food_knowledge_user_key(user_id),
+        f"{label}: save/search user identity is comparable without raw ID",
+    )
+    diagnostic_text = json.dumps(
+        {"save": save_diagnostics, "runtime": runtime_diagnostics, "search": search_diagnostics},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    check(user_id not in diagnostic_text and name not in diagnostic_text, f"{label}: diagnostics omit raw identity and name")
+    check(
+        not any(field in diagnostic_text for field in ("calories_kcal", "protein_g", "fat_g", "carbs_g")),
+        f"{label}: diagnostics omit nutrition values",
     )
     return revision_before, revision_after, match
 
@@ -305,6 +360,23 @@ def main() -> None:
             "personal cache source remains isolated by owner_user_id",
         )
         check(repository.list_foods("missing-user") == [], "unknown user cannot receive another user's Food Knowledge")
+        inactive_food = personal_food(1001, user_id)
+        inactive_food.update({"canonical_name": "診断対象食品", "status": "archived"})
+        source_missing_food = personal_food(1002, user_id)
+        source_missing_food.update({"canonical_name": "診断対象食品", "nutrition_sources": []})
+        _, drop_diagnostics = search_food_candidates_with_diagnostics(
+            "診断対象食品",
+            build_food_knowledge_snapshot([inactive_food, source_missing_food]),
+        )
+        drop_reasons = {trace["food_id"]: trace["drop_reason"] for trace in drop_diagnostics["personal_trace"]}
+        check(
+            drop_reasons[inactive_food["food_id"]] == "inactive",
+            "search diagnostics identify inactive Personal Food drop",
+        )
+        check(
+            drop_reasons[source_missing_food["food_id"]] == "source_not_selected",
+            "search diagnostics identify nutrition source selection drop",
+        )
         dashboard_data = pd.read_csv(ROOT / "records.csv")
         dashboard_data["日付"] = pd.to_datetime(dashboard_data["日付"], errors="coerce")
         _, projection_before, _, _ = prepare_dashboard_projection(dashboard_data, "2026-08-17")
