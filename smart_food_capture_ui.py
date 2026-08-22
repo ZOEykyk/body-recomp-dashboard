@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 import html
-from typing import Any
+from typing import Any, Callable
 
 import streamlit as st
 
 from food_master_repository import FoodMasterRepository
+from food_knowledge_diagnostics import (
+    confirmed_save_diagnostics,
+    food_knowledge_user_key,
+)
 from personal_food_master import confirm_capture_food
 from smart_food_capture import (
     MEAL_LABELS,
@@ -14,13 +18,16 @@ from smart_food_capture import (
     default_capture_nutrition_basis,
     prepare_capture_item,
     resolve_capture_nutrition_basis,
-    search_food_candidates,
+    search_food_candidates_with_diagnostics,
     source_presentation,
     unknown_candidate,
 )
 
 
 CAPTURE_STATE_KEY = "bodyos_smart_food_capture_items"
+FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY = "bodyos_food_knowledge_last_save_debug"
+FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY = "bodyos_food_knowledge_runtime_debug"
+FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY = "bodyos_food_knowledge_search_debug"
 SOURCE_MODE_OPTIONS = {
     "候補の値を使用": "candidate",
     "商品ラベルで確認": "user_label",
@@ -129,6 +136,28 @@ def _render_totals(items: list[dict[str, Any]]) -> dict[str, Any]:
     return aggregate
 
 
+def render_food_knowledge_debug_panel() -> None:
+    """Render the latest save/search diagnostics inside Food Knowledge details."""
+    session_state = getattr(st, "session_state", {})
+    runtime = deepcopy(session_state.get(FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY) or {})
+    last_save = deepcopy(session_state.get(FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY))
+    search = deepcopy(session_state.get(FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY) or {})
+    revision = str(runtime.get("source_revision") or "unavailable")
+    version = str(runtime.get("diagnostics_version") or "unavailable")
+    st.markdown("### Food Knowledge Diagnostics")
+    st.caption(f"Diagnostics {version} / Source revision `{revision}`")
+    st.caption("Secrets、食品名、栄養値は表示しません。Cloud保存・再読込・候補除外のメタデータのみです。")
+    with st.expander("Food Knowledge Debug", expanded=True):
+        st.json(
+            {
+                "runtime": runtime,
+                "last_confirmed_save": last_save,
+                "current_search": search,
+            },
+            expanded=True,
+        )
+
+
 def _render_capture_card(item: dict[str, Any], index: int, items: list[dict[str, Any]]) -> None:
     consumed = float(item.get("consumed_quantity") or 0)
     quantity = float(item.get("quantity") or 1)
@@ -220,6 +249,9 @@ def render_smart_food_capture(
     repository: FoodMasterRepository,
     user_id: str,
     knowledge: dict[str, Any],
+    *,
+    on_food_knowledge_changed: Callable[[], None] | None = None,
+    runtime_diagnostics: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Render the low-friction food workflow and return a copied capture state."""
     session_state = getattr(st, "session_state", None)
@@ -232,7 +264,29 @@ def render_smart_food_capture(
     items = deepcopy(session_state.get(CAPTURE_STATE_KEY) or [])
 
     query = st.text_input("食品を検索", placeholder="例：SAVAS BIO、理想のトマト、みたらし団子", key="smart-food-query")
-    suggestions = search_food_candidates(query, knowledge)
+    suggestions, search_diagnostics = search_food_candidates_with_diagnostics(query, knowledge)
+    runtime = deepcopy(runtime_diagnostics or {})
+    search_user_key = food_knowledge_user_key(user_id)
+    last_save_diagnostics = deepcopy(session_state.get(FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY))
+    search_diagnostics.update(
+        {
+            "search_user_key": search_user_key,
+            "runtime_user_matches_search": runtime.get("user_key") == search_user_key,
+            "last_save_user_matches_search": (
+                last_save_diagnostics.get("save_user_key") == search_user_key
+                if isinstance(last_save_diagnostics, dict)
+                else None
+            ),
+            "repository_cache_revision": repository.cache_revision(),
+            "personal_candidate_food_ids": [
+                str(candidate.get("food_id") or "")
+                for candidate in suggestions
+                if candidate.get("source_type") == "personal_master"
+            ],
+        }
+    )
+    session_state[FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY] = runtime
+    session_state[FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY] = deepcopy(search_diagnostics)
     if suggestions:
         options = [candidate["candidate_id"] for candidate in suggestions]
         by_id = {candidate["candidate_id"]: candidate for candidate in suggestions}
@@ -305,9 +359,18 @@ def render_smart_food_capture(
                 if prepared["source_type"] != "user_label":
                     st.error("今後も使う値は「商品ラベルで確認」を選択してください。概算値は確定保存しません。")
                     return deepcopy(items)
+                revision_before = repository.cache_revision()
                 stored = confirm_capture_food(repository, user_id, prepared)
                 prepared["food_id"] = stored.get("food_id")
                 prepared["source_detail"] = "過去の確認値"
+                session_state[FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY] = confirmed_save_diagnostics(
+                    repository,
+                    user_id,
+                    stored,
+                    revision_before=revision_before,
+                )
+                if on_food_knowledge_changed is not None:
+                    on_food_knowledge_changed()
             items.append(prepared)
             st.session_state[CAPTURE_STATE_KEY] = items
             st.rerun()
@@ -321,4 +384,11 @@ def render_smart_food_capture(
     return deepcopy(st.session_state.get(CAPTURE_STATE_KEY) or items)
 
 
-__all__ = ["CAPTURE_STATE_KEY", "render_smart_food_capture"]
+__all__ = [
+    "CAPTURE_STATE_KEY",
+    "FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY",
+    "FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY",
+    "FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY",
+    "render_food_knowledge_debug_panel",
+    "render_smart_food_capture",
+]

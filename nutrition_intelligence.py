@@ -5,6 +5,8 @@ from copy import deepcopy
 import datetime as dt
 from typing import Any
 
+from performance_instrumentation import instrument
+
 from food_resolver import resolve_food_text
 from nutrition_intelligence_models import (
     METRIC_FIELDS,
@@ -353,6 +355,7 @@ def _seven_day(history_results: list[dict[str, Any]]) -> dict[str, Any]:
     return {"available": True, "valid_day_count": len(valid), "average_score": round(sum(item["score"] for item in valid) / len(valid), 1), "average_calories_kcal": average("calories_kcal"), "average_protein_g": average("protein_g"), "average_fat_g": average("fat_g"), "average_carbs_g": average("carbs_g"), "trend_confidence": "strong" if len(valid) >= 4 else "limited"}
 
 
+@instrument("nutrition_intelligence.engine")
 def analyze_nutrition(
     record: dict[str, Any],
     *,
@@ -364,7 +367,9 @@ def analyze_nutrition(
 ) -> dict[str, Any]:
     """Analyze one record without mutation, IO, Streamlit, network, or an LLM."""
     safe_record, safe_history, safe_profile = deepcopy(record or {}), deepcopy(history or []), deepcopy(profile or {})
-    safe_food_knowledge = deepcopy(food_knowledge) if isinstance(food_knowledge, dict) else None
+    # Food Knowledge is immutable by contract and resolver outputs are copied.
+    # Reusing it avoids copying the full catalog for every historical day.
+    safe_food_knowledge = food_knowledge if isinstance(food_knowledge, dict) else None
     status, progress = determine_day_status(safe_record, now)
     targets = calculate_nutrition_targets(safe_profile)
     aggregation = _aggregate_from_meals(safe_record, safe_food_knowledge)
@@ -414,6 +419,9 @@ def analyze_nutrition(
         dated = [(item, _date(record_value(item, "date", "日付"))) for item in safe_history]
         prior = [item for item, date in dated if date and (current_date is None or date < current_date)]
         prior.sort(key=lambda item: _date(record_value(item, "date", "日付")) or dt.date.min)
+        # Comparisons need yesterday and at most the preceding seven valid days.
+        # Evaluating older history cannot change either result.
+        prior = prior[-7:]
         prior_results = [
             analyze_nutrition(
                 item,

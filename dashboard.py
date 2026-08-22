@@ -15,6 +15,8 @@ from bodyos_standard import SCORE_COMPONENTS, SCORE_COMPONENT_MAXIMA
 from dashboard_aggregation import project_dashboard_record
 from data_integrity import format_optional_number, format_weight_kg, valid_weight_series
 from nutrition_intelligence import analyze_nutrition
+from performance_instrumentation import measure
+from runtime_cache import streamlit_cache
 from workout_history import workout_history_rows
 from workout_intelligence import analyze_workout
 
@@ -37,6 +39,48 @@ SCORE_COMPONENT_LABELS = {
     "体調スコア": "体調",
     "飲酒スコア": "飲酒",
 }
+
+
+@streamlit_cache(st, "cache_data", ttl=30, max_entries=16, show_spinner=False)
+def cached_nutrition_insight(
+    record: dict[str, Any],
+    history: list[dict[str, Any]],
+    profile: dict[str, Any],
+    food_knowledge: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return analyze_nutrition(
+        record,
+        history=history,
+        profile=profile,
+        food_knowledge=food_knowledge,
+    )
+
+
+@streamlit_cache(st, "cache_data", ttl=30, max_entries=16, show_spinner=False)
+def cached_workout_insight(
+    record: dict[str, Any],
+    history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return analyze_workout(record, history=history)
+
+
+@streamlit_cache(st, "cache_data", max_entries=8, show_spinner=False)
+def prepare_dashboard_projection(
+    data: pd.DataFrame,
+    today_iso: str,
+) -> tuple[pd.Series, dict[str, Any], pd.DataFrame, pd.DataFrame]:
+    sorted_data = data.sort_values("日付")
+    latest = sorted_data.iloc[-1]
+    latest_projection = project_dashboard_record(latest)
+    chart_df = add_daily_display_columns(sorted_data)
+    chart_df["有効体重"] = valid_weight_series(chart_df["体重"])
+    chart_df["体重表示"] = chart_df["体重"].apply(format_weight_kg)
+    chart_df["7日平均体重"] = chart_df["有効体重"].rolling(window=7, min_periods=1).mean()
+    chart_df["7日平均Body Score"] = chart_df["Body Score"].rolling(window=7, min_periods=1).mean()
+    today = pd.Timestamp(today_iso)
+    week_start = today - pd.Timedelta(days=today.weekday())
+    this_week = chart_df[pd.to_datetime(chart_df["日付"], errors="coerce") >= week_start]
+    return latest, latest_projection, chart_df, this_week
 
 
 def parse_number(value: Any, default: float = 0) -> float:
@@ -691,7 +735,8 @@ def render_workout_intelligence(latest: pd.Series, data: pd.DataFrame) -> None:
         return
 
     workout_history = data.iloc[:-1].to_dict("records") if len(data) > 1 else []
-    workout_insight = analyze_workout(latest.to_dict(), history=workout_history)
+    with measure("workout_intelligence.analyze", history_count=len(workout_history)):
+        workout_insight = cached_workout_insight(latest.to_dict(), workout_history)
     st.write(workout_insight["summary"])
     markup = textwrap.dedent(
         f"""
@@ -780,12 +825,13 @@ def render_nutrition_intelligence(
     st.subheader("Nutrition Intelligence")
     history = data.iloc[:-1].to_dict("records") if len(data) > 1 else []
     profile = {"body_weight": latest.get("体重")}
-    insight = analyze_nutrition(
-        latest.to_dict(),
-        history=history,
-        profile=profile,
-        food_knowledge=food_knowledge,
-    )
+    with measure("nutrition_intelligence.analyze", history_count=len(history)):
+        insight = cached_nutrition_insight(
+            latest.to_dict(),
+            history,
+            profile,
+            food_knowledge,
+        )
     cards = [
         ("Nutrition Score", f"{insight['score']}点", f"利用可能 {insight['available_points']}点分で正規化"),
         ("信頼度", insight["confidence"]["level"], f"{insight['confidence']['score']:.0%}"),
@@ -926,18 +972,12 @@ def render_dashboard(
     *,
     food_knowledge: dict[str, Any] | None = None,
 ) -> None:
+    with measure("dashboard.projection", record_count=len(data)):
+        latest, latest_projection, chart_df, this_week = prepare_dashboard_projection(
+            data,
+            dt.date.today().isoformat(),
+        )
     data = data.sort_values("日付")
-    latest = data.iloc[-1]
-    latest_projection = project_dashboard_record(latest)
-    chart_df = add_daily_display_columns(data)
-    chart_df["有効体重"] = valid_weight_series(chart_df["体重"])
-    chart_df["体重表示"] = chart_df["体重"].apply(format_weight_kg)
-    chart_df["7日平均体重"] = chart_df["有効体重"].rolling(window=7, min_periods=1).mean()
-    chart_df["7日平均Body Score"] = chart_df["Body Score"].rolling(window=7, min_periods=1).mean()
-
-    today = pd.Timestamp(dt.date.today())
-    week_start = today - pd.Timedelta(days=today.weekday())
-    this_week = chart_df[pd.to_datetime(chart_df["日付"], errors="coerce") >= week_start]
     st.header("ダッシュボード")
     render_body_score_summary(latest_projection, chart_df)
     render_todays_metrics(latest_projection, chart_df, this_week)

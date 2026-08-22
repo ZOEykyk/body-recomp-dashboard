@@ -9,6 +9,7 @@ from urllib import error, parse, request
 from food_aliases import normalize_food_name
 from food_master_models import normalized_identity_key, utc_now
 from food_master_repository import FoodMasterRepository
+from performance_instrumentation import instrument
 
 
 LOGGER = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ class SupabaseRestClient:
         self.timeout = max(float(timeout), 1.0)
         self.transport = transport or request.urlopen
 
+    @instrument("supabase.rest_request")
     def request(
         self,
         method: str,
@@ -475,6 +477,7 @@ class SupabaseFoodMasterRepository(FoodMasterRepository):
         )
         return self._foods_for_rows(user_id, rows)
 
+    @instrument("repository.build_snapshot")
     def build_snapshot(self, user_id: str, *, include_encounters: bool = False) -> dict[str, Any]:
         """Build Resolver knowledge from active rows without scanning candidates."""
         return {
