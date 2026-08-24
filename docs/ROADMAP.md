@@ -27,13 +27,15 @@
 - PR14 Schema Contract Hardening
 - PR15 Smart Food Capture & Nutrition Accuracy
 - PR15.1 Performance Optimization & Runtime Efficiency
+- PR16.1 Capture Foundation
 - PR8 Body Score AI
 - PR9 Coach AI
 - Future Lifestyle Intelligence
 
 ## Milestone M3 Platform
 
-- PR16 Smart Label Capture / OCR
+- PR16.2 Label OCR Runtime
+- Future Barcode Capture / Product Lookup
 - API separation
 - Database storage
 - Multi-device use

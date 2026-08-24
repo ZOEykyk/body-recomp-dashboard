@@ -14,6 +14,7 @@ Project BodyOS は、日々の行動を同じ物差しで眺めつつ、通常�
 - [Roadmap](docs/ROADMAP.md)
 - [Food Knowledge Foundation](docs/FOOD_KNOWLEDGE.md)
 - [Smart Food Capture](docs/SMART_FOOD_CAPTURE.md)
+- [Capture Foundation](docs/CAPTURE_FOUNDATION.md)
 - [Food Knowledge Supabase Operations](docs/SUPABASE_FOOD_KNOWLEDGE.md)
 - [Food Knowledge Production Runbook](docs/FOOD_KNOWLEDGE_RUNBOOK.md)
 - [PR12 Acceptance Test](docs/PR12_ACCEPTANCE_TEST.md)
