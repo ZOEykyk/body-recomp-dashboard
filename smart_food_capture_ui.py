@@ -11,6 +11,8 @@ from food_knowledge_diagnostics import (
     confirmed_save_diagnostics,
     food_knowledge_user_key,
 )
+from image_preprocessing import MAX_IMAGE_BYTES
+from label_ocr_runtime import LabelOcrError, capture_label_image, image_sha256
 from personal_food_master import confirm_capture_food
 from smart_food_capture import (
     MEAL_LABELS,
@@ -27,6 +29,8 @@ CAPTURE_STATE_KEY = "bodyos_smart_food_capture_items"
 FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY = "bodyos_food_knowledge_last_save_debug"
 FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY = "bodyos_food_knowledge_runtime_debug"
 FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY = "bodyos_food_knowledge_search_debug"
+LABEL_OCR_CANDIDATE_KEY = "bodyos_label_ocr_candidate"
+LABEL_OCR_METRICS_KEY = "bodyos_label_ocr_metrics"
 SOURCE_MODE_OPTIONS = {
     "候補の値を使用": "candidate",
     "商品ラベルで確認": "user_label",
@@ -329,6 +333,149 @@ def _render_capture_card(item: dict[str, Any], index: int, items: list[dict[str,
             st.rerun()
 
 
+def _confirmed_editor_item(
+    candidate: dict[str, Any],
+    editor_values: dict[str, Any],
+    repository: FoodMasterRepository,
+    user_id: str,
+    *,
+    on_food_knowledge_changed: Callable[[], None] | None,
+) -> dict[str, Any]:
+    prepared = prepare_food_candidate_editor_result(candidate, editor_values)
+    if not editor_values.get("remember"):
+        return prepared
+    if prepared["source_type"] != "user_label":
+        raise ValueError("今後も使う値は「商品ラベルで確認」を選択してください。概算値は確定保存しません。")
+    revision_before = repository.cache_revision()
+    stored = confirm_capture_food(repository, user_id, prepared)
+    prepared["food_id"] = stored.get("food_id")
+    prepared["source_detail"] = "過去の確認値"
+    st.session_state[FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY] = confirmed_save_diagnostics(
+        repository,
+        user_id,
+        stored,
+        revision_before=revision_before,
+    )
+    if on_food_knowledge_changed is not None:
+        on_food_knowledge_changed()
+    return prepared
+
+
+def _render_label_capture(
+    items: list[dict[str, Any]],
+    repository: FoodMasterRepository,
+    user_id: str,
+    *,
+    on_food_knowledge_changed: Callable[[], None] | None,
+) -> None:
+    with st.expander("栄養ラベル画像から追加", expanded=False):
+        st.caption("JPG/JPEG/PNG・最大10MB。画像とOCR原文は保存されません。結果を確認・修正してください。")
+        uploaded = st.file_uploader(
+            "栄養ラベル画像",
+            type=["jpg", "jpeg", "png"],
+            key="label-ocr-upload",
+        )
+        suggested_name = st.text_input(
+            "食品名（任意）",
+            placeholder="例：商品名や味",
+            key="label-ocr-name",
+        )
+        current_hash = None
+        image_bytes = None
+        if uploaded is not None:
+            image_bytes = uploaded.getvalue()
+            if len(image_bytes) > MAX_IMAGE_BYTES:
+                st.error("画像は10MB以下にしてください。")
+                image_bytes = None
+            else:
+                current_hash = image_sha256(image_bytes)
+                try:
+                    st.image(image_bytes, caption="アップロード画像", width="stretch")
+                except Exception:
+                    st.warning("画像を表示できません。別のJPG/JPEG/PNGを選ぶか、手入力で続けてください。")
+            action_ocr, action_manual = st.columns(2)
+            if action_ocr.button(
+                "OCRを実行",
+                type="primary",
+                key="label-ocr-run",
+                width="stretch",
+                disabled=image_bytes is None,
+            ):
+                try:
+                    result = capture_label_image(image_bytes, suggested_name=suggested_name)
+                except LabelOcrError as exc:
+                    st.session_state[LABEL_OCR_CANDIDATE_KEY] = unknown_candidate(
+                        suggested_name or "ラベルから追加した食品"
+                    )
+                    st.session_state[LABEL_OCR_METRICS_KEY] = {"status": "failed"}
+                    st.warning(f"{exc} 読み取れなかったので手入力で続けてください。")
+                except Exception:
+                    st.session_state[LABEL_OCR_CANDIDATE_KEY] = unknown_candidate(
+                        suggested_name or "ラベルから追加した食品"
+                    )
+                    st.session_state[LABEL_OCR_METRICS_KEY] = {"status": "failed"}
+                    st.warning("OCRを実行できませんでした。手入力で続けてください。")
+                else:
+                    st.session_state[LABEL_OCR_CANDIDATE_KEY] = result["candidate"]
+                    st.session_state[LABEL_OCR_METRICS_KEY] = {
+                        "status": "completed",
+                        **result["metrics"],
+                    }
+            if action_manual.button("手入力で続ける", key="label-ocr-manual", width="stretch"):
+                st.session_state[LABEL_OCR_CANDIDATE_KEY] = unknown_candidate(
+                    suggested_name or "ラベルから追加した食品"
+                )
+                st.session_state[LABEL_OCR_METRICS_KEY] = {"status": "manual"}
+
+        candidate = deepcopy(st.session_state.get(LABEL_OCR_CANDIDATE_KEY))
+        if isinstance(candidate, dict):
+            metadata = candidate.get("capture_metadata")
+            candidate_hash = metadata.get("image_sha256") if isinstance(metadata, dict) else None
+            if candidate_hash and current_hash and candidate_hash != current_hash:
+                candidate = None
+        if not isinstance(candidate, dict):
+            return
+
+        metrics = deepcopy(st.session_state.get(LABEL_OCR_METRICS_KEY) or {})
+        if metrics.get("status") == "completed":
+            detected = int(metrics.get("candidate_fields") or 0)
+            cache_label = "cache hit" if metrics.get("cache_hit") else "OCR実行"
+            if detected == 0:
+                st.warning("栄養値を読み取れなかったので、手入力で続けてください。")
+            elif detected < 4:
+                st.warning(f"OCR結果は主要栄養項目 {detected}/4です。不足項目を確認・修正してください。")
+            else:
+                st.success(f"OCR完了: 主要栄養項目 4/4・{cache_label}")
+            st.caption(
+                f"前処理 {float(metrics.get('preprocessing_ms') or 0):,.0f}ms / "
+                f"OCR {float(metrics.get('ocr_ms') or 0):,.0f}ms / "
+                f"候補生成 {float(metrics.get('candidate_ms') or 0):,.1f}ms"
+            )
+        st.markdown(_source_badge(candidate), unsafe_allow_html=True)
+        editor_values = render_food_candidate_editor(
+            candidate,
+            key_prefix=f"label-{candidate['candidate_id']}",
+            include_remember=True,
+        )
+        if st.button("確認して食品へ追加", type="primary", key=f"label-add-{candidate['candidate_id']}"):
+            try:
+                prepared = _confirmed_editor_item(
+                    candidate,
+                    editor_values,
+                    repository,
+                    user_id,
+                    on_food_knowledge_changed=on_food_knowledge_changed,
+                )
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                items.append(prepared)
+                st.session_state[CAPTURE_STATE_KEY] = items
+                st.session_state.pop(LABEL_OCR_CANDIDATE_KEY, None)
+                st.session_state.pop(LABEL_OCR_METRICS_KEY, None)
+                st.rerun()
+
+
 def render_smart_food_capture(
     repository: FoodMasterRepository,
     user_id: str,
@@ -346,6 +493,12 @@ def render_smart_food_capture(
     st.subheader("Smart Food Capture")
     st.caption("食品を検索して候補を確認します。購入・予定は摂取するまで栄養集計へ入りません。")
     items = deepcopy(session_state.get(CAPTURE_STATE_KEY) or [])
+    _render_label_capture(
+        items,
+        repository,
+        user_id,
+        on_food_knowledge_changed=on_food_knowledge_changed,
+    )
 
     query = st.text_input("食品を検索", placeholder="例：SAVAS BIO、理想のトマト、みたらし団子", key="smart-food-query")
     suggestions, search_diagnostics = search_food_candidates_with_diagnostics(query, knowledge)
@@ -396,29 +549,16 @@ def render_smart_food_capture(
         )
         if st.button("食品を追加", type="primary", key=f"new-add-{editor_key}"):
             try:
-                prepared = prepare_food_candidate_editor_result(
+                prepared = _confirmed_editor_item(
                     candidate,
                     editor_values,
+                    repository,
+                    user_id,
+                    on_food_knowledge_changed=on_food_knowledge_changed,
                 )
             except ValueError as exc:
                 st.error(str(exc))
                 return deepcopy(items)
-            if editor_values["remember"]:
-                if prepared["source_type"] != "user_label":
-                    st.error("今後も使う値は「商品ラベルで確認」を選択してください。概算値は確定保存しません。")
-                    return deepcopy(items)
-                revision_before = repository.cache_revision()
-                stored = confirm_capture_food(repository, user_id, prepared)
-                prepared["food_id"] = stored.get("food_id")
-                prepared["source_detail"] = "過去の確認値"
-                session_state[FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY] = confirmed_save_diagnostics(
-                    repository,
-                    user_id,
-                    stored,
-                    revision_before=revision_before,
-                )
-                if on_food_knowledge_changed is not None:
-                    on_food_knowledge_changed()
             items.append(prepared)
             st.session_state[CAPTURE_STATE_KEY] = items
             st.rerun()
@@ -437,6 +577,8 @@ __all__ = [
     "FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY",
     "FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY",
     "FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY",
+    "LABEL_OCR_CANDIDATE_KEY",
+    "LABEL_OCR_METRICS_KEY",
     "render_food_candidate_editor",
     "render_food_knowledge_debug_panel",
     "render_smart_food_capture",

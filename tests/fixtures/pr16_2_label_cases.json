@@ -1,0 +1,62 @@
+{
+  "standard_vertical": {
+    "text": "栄養成分表示\n1個あたり\n熱量 120kcal\nたんぱく質 3.2g\n脂質 1.5g\n炭水化物 20.1g",
+    "basis": "per_item",
+    "known_fields": 4
+  },
+  "all_pfc": {
+    "text": "エネルギー 223kcal P 12g F 15g C 14g 1袋あたり",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "per_package": {
+    "text": "栄養成分表示 1包装当たり カロリー 180kcal タンパク質 10g 脂質 2g 炭水化物 30g",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "per_100g": {
+    "text": "栄養成分表示 100gあたり 熱量 250kcal たんぱく質 10g 脂質 8g 炭水化物 34g",
+    "basis": "per_100g",
+    "known_fields": 4
+  },
+  "per_100ml": {
+    "text": "栄養成分表示 100ml当たり エネルギー 42kcal たんぱく質 1.2g 脂質 0g 炭水化物 9.3g",
+    "basis": "per_100ml",
+    "known_fields": 4
+  },
+  "content_amount": {
+    "text": "内容量 180g 栄養成分表示 1袋あたり 熱量 300kcal たんぱく質 12g 脂質 5g 炭水化物 50g",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "kcal_and_kj": {
+    "text": "1食あたり エネルギー 100kcal / 418.4kJ たんぱく質 2g 脂質 3g 炭水化物 4g",
+    "basis": "per_serving",
+    "known_fields": 4
+  },
+  "partial_fields": {
+    "text": "1個あたり 熱量 80kcal たんぱく質 1g",
+    "basis": "per_item",
+    "known_fields": 2
+  },
+  "sugar_listed": {
+    "text": "1個あたり 熱量 80kcal たんぱく質 1g 脂質 0g 糖質 18g",
+    "basis": "per_item",
+    "known_fields": 3
+  },
+  "low_contrast": {
+    "text": "100gあたり 熱量 150kcal たんぱく質 5g 脂質 2g 炭水化物 27g",
+    "basis": "per_100g",
+    "known_fields": 4
+  },
+  "slightly_rotated": {
+    "text": "1包装あたり 熱量 118kcal たんぱく質 15g 脂質 0g 炭水化物 14g",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "noisy_label": {
+    "text": "名称 ヨーグルト 原材料名 乳製品 保存方法 要冷蔵 販売者 BodyOS お問い合わせ 0120 栄養成分表示 1個あたり エネルギー 99kcal たんぱく質 3g 脂質 0.5g 炭水化物 13g 賞味期限 枠外記載",
+    "basis": "per_item",
+    "known_fields": 4
+  }
+}

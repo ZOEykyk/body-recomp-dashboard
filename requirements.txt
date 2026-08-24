@@ -2,3 +2,5 @@ streamlit
 pandas
 altair
 jsonschema>=4.18,<5
+Pillow>=10,<12
+pytesseract>=0.3.13,<0.4
