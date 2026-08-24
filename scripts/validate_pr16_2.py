@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -27,7 +28,7 @@ def main() -> None:
     schema_before = hashlib.sha256(schema.read_bytes()).hexdigest()
 
     subprocess.run(
-        [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_label_ocr_runtime.py"],
+        [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*ocr_runtime*.py"],
         cwd=ROOT,
         check=True,
     )
@@ -41,6 +42,19 @@ def main() -> None:
     )
     check(any(item.key == "smart-food-query" for item in app.text_input), "normal Food Search remains available")
     check(startup_ms < 15_000, "normal app startup remains bounded")
+
+    diagnostics_toggle = next(item for item in app.toggle if item.label == "Food Knowledge詳細を表示")
+    app = diagnostics_toggle.set_value(True).run()
+    check(not app.exception, "metadata-only diagnostics render without exceptions")
+    json_values = [json.loads(item.value) for item in app.get("json")]
+    debug_payload = next(item for item in json_values if isinstance(item, dict) and "ocr_runtime" in item)
+    ocr_runtime = debug_payload["ocr_runtime"]
+    check("tesseract_executable_detected" in ocr_runtime, "Tesseract detection is observable")
+    check("available_languages" in ocr_runtime, "OCR languages are observable")
+    check("runtime" in ocr_runtime and "cache" in ocr_runtime, "OCR initialization and cache metadata are observable")
+    serialized_diagnostics = json.dumps(debug_payload, ensure_ascii=False, sort_keys=True)
+    for forbidden in ("raw_text", "image_sha256", "SECRET", "SUPABASE_KEY"):
+        check(forbidden not in serialized_diagnostics, f"diagnostics omit {forbidden}")
 
     check(hashlib.sha256(records.read_bytes()).hexdigest() == records_before, "records.csv unchanged")
     check(hashlib.sha256(schema.read_bytes()).hexdigest() == schema_before, "Canonical Schema unchanged")

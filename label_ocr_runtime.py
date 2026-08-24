@@ -44,15 +44,19 @@ class TesseractOcrEngine:
         try:
             import pytesseract
         except ImportError as exc:
+            _set_ocr_runtime_state("error")
             raise LabelOcrError("OCR runtime is unavailable.") from exc
         return pytesseract
 
     def version(self) -> str:
         pytesseract = self._pytesseract()
         try:
-            return str(pytesseract.get_tesseract_version()).splitlines()[0]
+            version = str(pytesseract.get_tesseract_version()).splitlines()[0]
         except Exception as exc:
+            _set_ocr_runtime_state("error")
             raise LabelOcrError("Tesseract is unavailable.") from exc
+        _set_ocr_runtime_state("ready")
+        return version
 
     def recognize(self, image: Any, *, language: str, timeout_seconds: int) -> dict[str, Any]:
         pytesseract = self._pytesseract()
@@ -70,10 +74,13 @@ class TesseractOcrEngine:
                 timeout=timeout_seconds,
             )
         except LabelOcrError:
+            _set_ocr_runtime_state("error")
             raise
         except RuntimeError as exc:
+            _set_ocr_runtime_state("error")
             raise LabelOcrError("OCR execution timed out or failed.") from exc
         except Exception as exc:
+            _set_ocr_runtime_state("error")
             raise LabelOcrError("OCR execution failed.") from exc
 
         lines: OrderedDict[tuple[int, int, int], list[str]] = OrderedDict()
@@ -95,6 +102,7 @@ class TesseractOcrEngine:
             if confidence >= 0:
                 confidences.append(confidence)
         raw_text = "\n".join(" ".join(tokens) for tokens in lines.values())
+        _set_ocr_runtime_state("ready")
         return {
             "raw_text": raw_text,
             "confidence": round(statistics.mean(confidences) / 100, 4) if confidences else None,
@@ -132,8 +140,30 @@ class OcrRuntimeCache:
         with self._lock:
             self._values.clear()
 
+    def metadata(self) -> dict[str, Any]:
+        """Return cache counters only; cache keys and OCR payloads remain private."""
+        with self._lock:
+            entry_count = len(self._values)
+            return {
+                "status": "populated" if entry_count else "empty",
+                "entry_count": entry_count,
+                "max_entries": self._max_entries,
+            }
+
 
 OCR_RUNTIME_CACHE = OcrRuntimeCache()
+_OCR_RUNTIME_STATE_LOCK = RLock()
+_OCR_RUNTIME_STATE = {"initialized": False, "status": "not_initialized"}
+
+
+def _set_ocr_runtime_state(status: str) -> None:
+    with _OCR_RUNTIME_STATE_LOCK:
+        _OCR_RUNTIME_STATE.update({"initialized": True, "status": status})
+
+
+def ocr_runtime_state() -> dict[str, Any]:
+    with _OCR_RUNTIME_STATE_LOCK:
+        return deepcopy(_OCR_RUNTIME_STATE)
 
 
 def image_sha256(image_bytes: bytes) -> str:
@@ -348,5 +378,6 @@ __all__ = [
     "capture_label_image",
     "image_sha256",
     "ocr_cache_key",
+    "ocr_runtime_state",
     "normalize_ocr_text_for_parser",
 ]

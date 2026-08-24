@@ -13,6 +13,7 @@ from food_knowledge_diagnostics import (
 )
 from image_preprocessing import MAX_IMAGE_BYTES
 from label_ocr_runtime import LabelOcrError, capture_label_image, image_sha256
+from ocr_runtime_diagnostics import ocr_runtime_metadata_diagnostics
 from personal_food_master import confirm_capture_food
 from smart_food_capture import (
     MEAL_LABELS,
@@ -274,15 +275,24 @@ def render_food_knowledge_debug_panel() -> None:
     runtime = deepcopy(session_state.get(FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY) or {})
     last_save = deepcopy(session_state.get(FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY))
     search = deepcopy(session_state.get(FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY) or {})
+    try:
+        ocr_runtime = ocr_runtime_metadata_diagnostics()
+    except Exception as exc:
+        ocr_runtime = {
+            "diagnostics_version": "unavailable",
+            "probe_status": "error",
+            "probe_error_type": type(exc).__name__,
+        }
     revision = str(runtime.get("source_revision") or "unavailable")
     version = str(runtime.get("diagnostics_version") or "unavailable")
     st.markdown("### Food Knowledge Diagnostics")
     st.caption(f"Diagnostics {version} / Source revision `{revision}`")
-    st.caption("Secrets、食品名、栄養値は表示しません。Cloud保存・再読込・候補除外のメタデータのみです。")
+    st.caption("Secrets、画像、OCR原文、食品名、栄養値は表示しません。runtimeと保存経路のメタデータのみです。")
     with st.expander("Food Knowledge Debug", expanded=True):
         st.json(
             {
                 "runtime": runtime,
+                "ocr_runtime": ocr_runtime,
                 "last_confirmed_save": last_save,
                 "current_search": search,
             },

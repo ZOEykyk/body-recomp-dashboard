@@ -47,6 +47,12 @@ The uploaded image, processed variants, raw OCR text, and token-level data are n
 
 Only user-confirmed name, quantity, unit, nutrition, and existing source metadata may use the existing Daily Food and `explicit_user_label` persistence paths.
 
+## Cloud Runtime Diagnostics
+
+The existing `Food Knowledge詳細を表示` panel includes a metadata-only `ocr_runtime` section for hosted acceptance. It reports Tesseract detection/version/languages, `jpn` and `eng` availability, Pillow and pytesseract versions, initialization status, and cache entry counts. Repository type, connection status, and fallback state remain in the adjacent `runtime` section.
+
+The diagnostic contract never includes executable paths, environment values, secrets, image hashes, cache keys, image data, OCR text, food names, or nutrition values. The environment probe does not initialize the OCR engine.
+
 ## Failure Behavior
 
 Corrupt images, missing Tesseract/language data, execution failure, timeout, unreadable labels, and missing nutrition fields remain page-local errors. The UI creates or retains an unconfirmed manual candidate so the user can continue in the shared Editor.
