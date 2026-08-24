@@ -3,7 +3,7 @@
 ## Flow
 
 ```text
-JPG / JPEG / PNG upload
+Camera capture or JPG / JPEG / PNG upload
 -> Pillow preprocessing
 -> LabelOcrProvider / Tesseract jpn+eng
 -> CaptureObservation
@@ -15,6 +15,8 @@ JPG / JPEG / PNG upload
 ```
 
 PR16.2 adds no alternate food model and no persistence API. OCR modules do not import Repository, Food Master, Supabase, or Daily Record code.
+
+The Streamlit UI offers both `st.camera_input()` and `st.file_uploader()`. Both return image bytes to the same preprocessing and OCR entry point; input origin does not create a separate downstream branch or alter the PR16.1 Capture contract.
 
 ## Runtime
 
@@ -37,7 +39,7 @@ The cache is memory-only and is cleared by process restart or deployment. It pre
 
 ## Privacy
 
-The uploaded image, processed variants, raw OCR text, and token-level data are never written to:
+The captured or uploaded image, processed variants, raw OCR text, and token-level data are never written to:
 
 - Supabase
 - Local JSON / JSONL Food Knowledge

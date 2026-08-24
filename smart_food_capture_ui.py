@@ -379,12 +379,26 @@ def _render_label_capture(
     on_food_knowledge_changed: Callable[[], None] | None,
 ) -> None:
     with st.expander("栄養ラベル画像から追加", expanded=False):
-        st.caption("JPG/JPEG/PNG・最大10MB。画像とOCR原文は保存されません。結果を確認・修正してください。")
-        uploaded = st.file_uploader(
-            "栄養ラベル画像",
-            type=["jpg", "jpeg", "png"],
-            key="label-ocr-upload",
+        st.caption("カメラ撮影またはJPG/JPEG/PNG・最大10MB。画像とOCR原文は保存されません。結果を確認・修正してください。")
+        input_method = st.radio(
+            "画像の入力方法",
+            ("カメラで撮影", "画像をUpload"),
+            horizontal=True,
+            key="label-ocr-input-method",
         )
+        if input_method == "カメラで撮影":
+            selected_image = st.camera_input(
+                "栄養ラベルを撮影",
+                key="label-ocr-camera",
+            )
+            preview_caption = "撮影画像"
+        else:
+            selected_image = st.file_uploader(
+                "栄養ラベル画像",
+                type=["jpg", "jpeg", "png"],
+                key="label-ocr-upload",
+            )
+            preview_caption = "アップロード画像"
         suggested_name = st.text_input(
             "食品名（任意）",
             placeholder="例：商品名や味",
@@ -392,15 +406,15 @@ def _render_label_capture(
         )
         current_hash = None
         image_bytes = None
-        if uploaded is not None:
-            image_bytes = uploaded.getvalue()
+        if selected_image is not None:
+            image_bytes = selected_image.getvalue()
             if len(image_bytes) > MAX_IMAGE_BYTES:
                 st.error("画像は10MB以下にしてください。")
                 image_bytes = None
             else:
                 current_hash = image_sha256(image_bytes)
                 try:
-                    st.image(image_bytes, caption="アップロード画像", width="stretch")
+                    st.image(image_bytes, caption=preview_caption, width="stretch")
                 except Exception:
                     st.warning("画像を表示できません。別のJPG/JPEG/PNGを選ぶか、手入力で続けてください。")
             action_ocr, action_manual = st.columns(2)
@@ -441,7 +455,7 @@ def _render_label_capture(
         if isinstance(candidate, dict):
             metadata = candidate.get("capture_metadata")
             candidate_hash = metadata.get("image_sha256") if isinstance(metadata, dict) else None
-            if candidate_hash and current_hash and candidate_hash != current_hash:
+            if candidate_hash and candidate_hash != current_hash:
                 candidate = None
         if not isinstance(candidate, dict):
             return

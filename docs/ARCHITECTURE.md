@@ -169,7 +169,7 @@ prepare_capture_item() / optional confirm_capture_food()
 
 `capture_channel` describes how evidence arrived; it never determines nutrition trust. OCR extraction confidence is retained under `capture_metadata`, while an OCR-derived candidate remains unconfirmed and review-required. Only the existing user-label Confirmation path may create an `explicit_user_label` source. Capture Provider and label-parser modules have no Repository dependency and cannot persist observations. See [Capture Foundation](CAPTURE_FOUNDATION.md).
 
-PR16.2 connects uploaded label bytes to that boundary. Pillow and pytesseract are imported only after an OCR action. The cache identity includes image SHA-256, OCR engine/version, preprocessing version, and language; cached OCR text remains process-local. The uploaded image, processed variants, raw OCR text, and token data are excluded from Canonical Schema and every Food Knowledge repository. See [Label OCR Runtime](LABEL_OCR_RUNTIME.md).
+PR16.2 connects camera-captured or uploaded label bytes to that boundary through one shared image pipeline. Pillow and pytesseract are imported only after an OCR action. The cache identity includes image SHA-256, OCR engine/version, preprocessing version, and language; cached OCR text remains process-local. The captured/uploaded image, processed variants, raw OCR text, and token data are excluded from Canonical Schema and every Food Knowledge repository. See [Label OCR Runtime](LABEL_OCR_RUNTIME.md).
 
 ## Dashboard Layer
 

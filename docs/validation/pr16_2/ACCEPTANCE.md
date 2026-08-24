@@ -10,6 +10,8 @@ Date: 2026-08-24
 - PASS: OCR Candidate remains unconfirmed and review-required.
 - PASS: shared Editor and explicit Confirmation produce Daily Nutrition at 100% coverage.
 - PASS: first OCR approximately 393 ms; same-image cache hit approximately 7 ms.
+- PASS: camera and upload inputs render through one shared image-byte pipeline; identical bytes reuse the same SHA cache entry.
+- PASS: camera and upload selection render at 390px with no horizontal overflow in the local Streamlit app.
 - PASS: preprocessing approximately 34 ms; Candidate generation approximately 0.1 ms.
 - PASS: blank image returns the manual Editor without a page exception.
 - PASS: normal Streamlit startup approximately 0.5 seconds in AppTest without OCR initialization.
@@ -26,6 +28,7 @@ Dedicated app: https://body-recomp-dashboard-pr16-2-test.streamlit.app/
 
 - PASS: the PR branch deployed and the Streamlit dashboard started without an application exception.
 - PASS: Smart Food Capture and the label-image upload section render in the hosted app.
+- PENDING: mobile camera capture on iPhone at 390-430px width.
 - PASS: metadata-only `ocr_runtime` panel deployed at source revision `807ab104bdaf`.
 - PENDING: hosted Tesseract execution and real-label accuracy checks.
 - PENDING: Supabase-backed Personal Food Master save/reboot checks because production secrets are not configured in the dedicated app.
@@ -54,6 +57,22 @@ Required before Draft removal:
 6. Confirm an unreadable image reaches manual fallback.
 7. Confirm a repeated image reports a cache hit.
 8. Inspect Supabase Food Knowledge rows and confirm no image, OCR text, token, or bounding-box payload exists.
+
+## Mobile Camera Acceptance
+
+Use an iPhone or equivalent smartphone against the dedicated PR16.2 Test App:
+
+1. Open Smart Food Capture and expand `栄養ラベル画像から追加`.
+2. Select `カメラで撮影` and allow camera permission.
+3. Photograph a Japanese nutrition label and confirm the preview is readable without horizontal overflow.
+4. Run OCR and confirm Calories / Protein / Fat / Carbohydrates and basis flow into one review-required Candidate.
+5. Correct any OCR errors in the shared Editor and explicitly confirm the item.
+6. Confirm Daily Food and Daily Nutrition reflect only the corrected values.
+7. Repeat OCR for the same captured image during the same process and confirm a cache hit and no extra OCR execution.
+8. Confirm Repository revision and food counts remain unchanged before Confirmation.
+9. Inspect persisted stores and confirm the camera image, processed image, and raw OCR text are absent.
+
+Record device/browser, viewport width, camera permission result, OCR/cache timing, Candidate/Editor/Confirmation result, and any layout issue. The camera path must preserve the same Supabase save, immediate search, and reboot restoration checks used by uploaded images.
 
 Before uploading a label, enable `Food Knowledge詳細を表示` and record only these metadata fields:
 

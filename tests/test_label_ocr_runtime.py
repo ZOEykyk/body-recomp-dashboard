@@ -149,6 +149,20 @@ class LabelOcrProviderTests(unittest.TestCase):
         self.assertFalse(first.last_metrics["cache_hit"])
         self.assertTrue(second.last_metrics["cache_hit"])
 
+    def test_camera_and_upload_bytes_share_image_cache_identity(self) -> None:
+        engine = FakeImageOcrEngine(CASES["standard_vertical"]["text"])
+        cache = OcrRuntimeCache()
+        camera_bytes = image_fixture()
+        uploaded_bytes = bytes(camera_bytes)
+        provider = LabelOcrProvider(engine, cache=cache)
+
+        provider.capture(CaptureRequest(camera_bytes, image_sha256=image_sha256(camera_bytes)))
+        provider.capture(CaptureRequest(uploaded_bytes, image_sha256=image_sha256(uploaded_bytes)))
+
+        self.assertEqual(image_sha256(camera_bytes), image_sha256(uploaded_bytes))
+        self.assertEqual(engine.calls, 1)
+        self.assertTrue(provider.last_metrics["cache_hit"])
+
     def test_unreadable_image_returns_reviewable_manual_candidate(self) -> None:
         engine = FakeImageOcrEngine("")
         provider = LabelOcrProvider(engine, cache=OcrRuntimeCache())

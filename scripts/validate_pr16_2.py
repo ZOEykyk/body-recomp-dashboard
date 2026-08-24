@@ -37,6 +37,13 @@ def main() -> None:
     startup_ms = (time.perf_counter() - started) * 1000
     check(not app.exception, "Streamlit app renders without OCR initialization errors")
     check(
+        any(item.proto.label == "栄養ラベルを撮影" for item in app.get("camera_input")),
+        "Label camera input renders",
+    )
+    input_method = next(item for item in app.radio if item.key == "label-ocr-input-method")
+    app = input_method.set_value("画像をUpload").run()
+    check(not app.exception, "switching label input method renders without exceptions")
+    check(
         any(item.proto.label == "栄養ラベル画像" for item in app.get("file_uploader")),
         "Label image uploader renders",
     )
