@@ -20,18 +20,24 @@ The local label is generated test media, not a photographed commercial package. 
 
 ## Cloud Acceptance
 
-Status: **NOT COMPLETE**
+Status: **PARTIAL - NOT MERGE-READY**
+
+Dedicated app: https://body-recomp-dashboard-pr16-2-test.streamlit.app/
+
+- PASS: the PR branch deployed and the Streamlit dashboard started without an application exception.
+- PASS: Smart Food Capture and the label-image upload section render in the hosted app.
+- PENDING: hosted Tesseract execution and real-label accuracy checks.
+- PENDING: Supabase-backed Personal Food Master save/reboot checks because production secrets are not configured in the dedicated app.
 
 Required before Draft removal:
 
-1. Deploy the PR16.2 branch to a dedicated Streamlit Community Cloud test app.
-2. Confirm `packages.txt` installs Tesseract with `jpn` and `eng` data.
-3. Upload 3-5 real Japanese nutrition-label images.
-4. Confirm preview, OCR, Candidate, Editor correction, and Daily Nutrition.
-5. Confirm optional Personal Food Master save and immediate same-name P/F/C restore.
-6. Reboot the app and confirm the saved Food Master value restores again.
-7. Confirm an unreadable image reaches manual fallback.
-8. Confirm a repeated image reports a cache hit.
-9. Inspect Supabase Food Knowledge rows and confirm no image, OCR text, token, or bounding-box payload exists.
+1. Confirm `packages.txt` installs Tesseract with `jpn` and `eng` data by executing hosted OCR.
+2. Upload 3-5 real Japanese nutrition-label images.
+3. Confirm preview, OCR, Candidate, Editor correction, and Daily Nutrition.
+4. Configure the dedicated app's Food Knowledge secrets and confirm optional Personal Food Master save and immediate same-name P/F/C restore.
+5. Reboot the app and confirm the saved Food Master value restores again.
+6. Confirm an unreadable image reaches manual fallback.
+7. Confirm a repeated image reports a cache hit.
+8. Inspect Supabase Food Knowledge rows and confirm no image, OCR text, token, or bounding-box payload exists.
 
 PR16.2 remains Draft and is not Merge-ready until these hosted cases pass.
