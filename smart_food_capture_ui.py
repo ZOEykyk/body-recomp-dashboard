@@ -15,9 +15,8 @@ from personal_food_master import confirm_capture_food
 from smart_food_capture import (
     MEAL_LABELS,
     calculate_daily_nutrition,
-    default_capture_nutrition_basis,
-    prepare_capture_item,
-    resolve_capture_nutrition_basis,
+    capture_editor_nutrition_basis,
+    prepare_food_candidate_editor_result,
     search_food_candidates_with_diagnostics,
     source_presentation,
     unknown_candidate,
@@ -42,11 +41,19 @@ def _nutrition_input(label: str, value: Any, key: str) -> float | None:
     return st.number_input(label, min_value=0.0, value=numeric, step=0.1, key=key)
 
 
-def _nutrition_basis_input(nutrition: dict[str, Any], unit: Any, key: str) -> str:
-    basis_value = resolve_capture_nutrition_basis(nutrition, unit)["basis"]
-    if basis_value == "unknown":
-        basis_value = default_capture_nutrition_basis(unit)
-    if key in st.session_state and st.session_state.get(key) == "unknown":
+def _nutrition_basis_input(
+    nutrition: dict[str, Any],
+    unit: Any,
+    key: str,
+    *,
+    preserve_unknown: bool = False,
+) -> str:
+    basis_value = capture_editor_nutrition_basis(
+        nutrition,
+        unit,
+        preserve_unknown=preserve_unknown,
+    )
+    if key in st.session_state and st.session_state.get(key) == "unknown" and not preserve_unknown:
         # Synchronize stale pre-fix widget state before this run creates the widget.
         st.session_state[key] = basis_value
     return st.selectbox(
@@ -55,6 +62,127 @@ def _nutrition_basis_input(nutrition: dict[str, Any], unit: Any, key: str) -> st
         index=BASIS_OPTIONS.index(basis_value),
         key=key,
     )
+
+
+def _source_mode_default(candidate: dict[str, Any], nutrition: dict[str, Any]) -> str:
+    if candidate.get("source_type") == "user_label":
+        return "商品ラベルで確認"
+    if candidate.get("source_type") == "estimated":
+        return "概算値として入力"
+    capture_metadata = candidate.get("capture_metadata")
+    capture_channel = capture_metadata.get("capture_channel") if isinstance(capture_metadata, dict) else None
+    has_nutrition = any(nutrition.get(field) is not None for field in ("calories_kcal", "protein_g", "fat_g", "carbs_g"))
+    if capture_channel == "label_ocr" and has_nutrition:
+        # Selecting this default does not persist anything. The add/confirm action is the trust boundary.
+        return "商品ラベルで確認"
+    if candidate.get("source_type") == "unknown" and has_nutrition:
+        return "概算値として入力"
+    return "候補の値を使用"
+
+
+def render_food_candidate_editor(
+    candidate: dict[str, Any],
+    *,
+    key_prefix: str,
+    include_remember: bool = False,
+) -> dict[str, Any]:
+    """Render one reusable editor for search, OCR, barcode, and existing candidates."""
+    capture_metadata = candidate.get("capture_metadata")
+    is_unconfirmed_ocr = (
+        isinstance(capture_metadata, dict)
+        and capture_metadata.get("capture_channel") == "label_ocr"
+        and not candidate.get("confirmed")
+    )
+    warnings = capture_metadata.get("warnings") if isinstance(capture_metadata, dict) else []
+    if warnings:
+        st.warning("抽出結果を確認してください: " + " / ".join(str(item.get("message") or item.get("code")) for item in warnings[:3]))
+
+    name = st.text_input("食品名", value=str(candidate.get("display_name") or ""), key=f"{key_prefix}-name")
+    meal_type_value = str(candidate.get("meal_type") or "snacks")
+    meal_type = st.selectbox(
+        "食事区分",
+        list(MEAL_LABELS),
+        index=list(MEAL_LABELS).index(meal_type_value) if meal_type_value in MEAL_LABELS else 3,
+        format_func=lambda value: MEAL_LABELS[value],
+        key=f"{key_prefix}-meal",
+    )
+    quantity = st.number_input(
+        "購入・用意した数量",
+        min_value=0.1,
+        value=float(candidate.get("quantity") or 1),
+        step=0.1,
+        key=f"{key_prefix}-quantity",
+    )
+    unit_value = str(candidate.get("unit") or "")
+    unit = st.selectbox(
+        "単位",
+        UNIT_OPTIONS,
+        index=UNIT_OPTIONS.index(unit_value) if unit_value in UNIT_OPTIONS else 0,
+        key=f"{key_prefix}-unit",
+    )
+    default_consumed = (
+        float(candidate.get("consumed_quantity") or 0)
+        if "consumed_quantity" in candidate
+        else float(quantity)
+    )
+    consumed_quantity = st.number_input(
+        "摂取した数量",
+        min_value=0.0,
+        max_value=float(quantity),
+        value=min(default_consumed, float(quantity)),
+        step=0.1,
+        help="0なら購入・予定として保持され、Daily nutritionへ加算されません。",
+        key=f"{key_prefix}-consumed",
+    )
+    nutrition = deepcopy(candidate.get("nutrition") or {})
+    calories = _nutrition_input("1単位あたり Calories", nutrition.get("calories_kcal"), f"{key_prefix}-kcal")
+    protein = _nutrition_input("1単位あたり Protein", nutrition.get("protein_g"), f"{key_prefix}-p")
+    fat = _nutrition_input("1単位あたり Fat", nutrition.get("fat_g"), f"{key_prefix}-f")
+    carbs = _nutrition_input("1単位あたり Carbs", nutrition.get("carbs_g"), f"{key_prefix}-c")
+    basis = _nutrition_basis_input(
+        nutrition,
+        unit,
+        f"{key_prefix}-basis",
+        preserve_unknown=is_unconfirmed_ocr,
+    )
+    source_default = _source_mode_default(candidate, nutrition)
+    source_label = st.radio(
+        "栄養値の由来",
+        list(SOURCE_MODE_OPTIONS),
+        index=list(SOURCE_MODE_OPTIONS).index(source_default),
+        horizontal=True,
+        key=f"{key_prefix}-source",
+    )
+    notes = st.text_input(
+        "備考",
+        value=str(candidate.get("notes") or ""),
+        key=f"{key_prefix}-notes",
+    )
+    remember = (
+        st.checkbox("この食品の栄養値を今後も使用する", key=f"{key_prefix}-remember")
+        if include_remember
+        else False
+    )
+    return {
+        "name": name,
+        "meal_type": meal_type,
+        "quantity": quantity,
+        "unit": unit,
+        "consumed_quantity": consumed_quantity,
+        "nutrition": {
+            "basis": basis,
+            "calories_kcal": calories,
+            "protein_g": protein,
+            "fat_g": fat,
+            "carbs_g": carbs,
+            "sugar_g": None,
+            "fiber_g": None,
+            "salt_g": None,
+        },
+        "source_mode": SOURCE_MODE_OPTIONS[source_label],
+        "notes": notes,
+        "remember": remember,
+    }
 
 
 def _source_badge(item: dict[str, Any]) -> str:
@@ -179,67 +307,23 @@ def _render_capture_card(item: dict[str, Any], index: int, items: list[dict[str,
     )
     capture_id = str(item.get("capture_id") or index)
     with st.expander("編集", expanded=False):
-        name = st.text_input("食品名", value=str(item.get("display_name") or ""), key=f"capture-name-{capture_id}")
-        meal_type = st.selectbox(
-            "食事区分",
-            list(MEAL_LABELS),
-            index=list(MEAL_LABELS).index(str(item.get("meal_type") or "snacks")),
-            format_func=lambda value: MEAL_LABELS[value],
-            key=f"capture-meal-{capture_id}",
+        editor_values = render_food_candidate_editor(
+            item,
+            key_prefix=f"capture-{capture_id}",
         )
-        quantity = st.number_input(
-            "購入・用意した数量", min_value=0.1, value=float(item.get("quantity") or 1), step=0.1,
-            key=f"capture-quantity-{capture_id}",
-        )
-        unit_value = str(item.get("unit") or "")
-        unit = st.selectbox(
-            "単位", UNIT_OPTIONS, index=UNIT_OPTIONS.index(unit_value) if unit_value in UNIT_OPTIONS else 0,
-            key=f"capture-unit-{capture_id}",
-        )
-        consumed_quantity = st.number_input(
-            "摂取した数量", min_value=0.0, max_value=float(quantity),
-            value=min(float(item.get("consumed_quantity") or 0), float(quantity)), step=0.1,
-            key=f"capture-consumed-{capture_id}",
-        )
-        nutrition = deepcopy(item.get("nutrition") or {})
-        calories = _nutrition_input("1単位あたり Calories", nutrition.get("calories_kcal"), f"capture-kcal-{capture_id}")
-        protein = _nutrition_input("1単位あたり Protein", nutrition.get("protein_g"), f"capture-p-{capture_id}")
-        fat = _nutrition_input("1単位あたり Fat", nutrition.get("fat_g"), f"capture-f-{capture_id}")
-        carbs = _nutrition_input("1単位あたり Carbs", nutrition.get("carbs_g"), f"capture-c-{capture_id}")
-        basis = _nutrition_basis_input(nutrition, unit, f"capture-basis-{capture_id}")
-        source_default = "商品ラベルで確認" if item.get("source_type") == "user_label" else "概算値として入力" if item.get("source_type") == "estimated" else "候補の値を使用"
-        source_label = st.radio(
-            "栄養値の由来", list(SOURCE_MODE_OPTIONS), index=list(SOURCE_MODE_OPTIONS).index(source_default),
-            horizontal=True, key=f"capture-source-{capture_id}",
-        )
-        notes = st.text_input("備考", value=str(item.get("notes") or ""), key=f"capture-notes-{capture_id}")
         action_col1, action_col2 = st.columns(2)
         if action_col1.button("更新", key=f"capture-update-{capture_id}", width="stretch"):
-            candidate = deepcopy(item)
-            candidate["canonical_name"] = name
-            candidate["display_name"] = name
-            items[index] = prepare_capture_item(
-                candidate,
-                meal_type=meal_type,
-                quantity=quantity,
-                unit=unit,
-                consumed_quantity=consumed_quantity,
-                nutrition={
-                    "basis": basis,
-                    "calories_kcal": calories,
-                    "protein_g": protein,
-                    "fat_g": fat,
-                    "carbs_g": carbs,
-                    "sugar_g": None,
-                    "fiber_g": None,
-                    "salt_g": None,
-                },
-                source_mode=SOURCE_MODE_OPTIONS[source_label],
-                notes=notes,
-                capture_id=capture_id,
-            )
-            st.session_state[CAPTURE_STATE_KEY] = items
-            st.rerun()
+            try:
+                items[index] = prepare_food_candidate_editor_result(
+                    item,
+                    editor_values,
+                    capture_id=capture_id,
+                )
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.session_state[CAPTURE_STATE_KEY] = items
+                st.rerun()
         if action_col2.button("削除", key=f"capture-delete-{capture_id}", width="stretch"):
             st.session_state[CAPTURE_STATE_KEY] = [value for position, value in enumerate(items) if position != index]
             st.rerun()
@@ -305,57 +389,21 @@ def render_smart_food_capture(
     if candidate is not None:
         st.markdown(_source_badge(candidate), unsafe_allow_html=True)
         editor_key = str(candidate["candidate_id"])
-        name = st.text_input("食品名", value=str(candidate.get("display_name") or query), key=f"new-name-{editor_key}")
-        meal_type = st.selectbox(
-            "食事区分", list(MEAL_LABELS), format_func=lambda value: MEAL_LABELS[value], key=f"new-meal-{editor_key}"
+        editor_values = render_food_candidate_editor(
+            candidate,
+            key_prefix=f"new-{editor_key}",
+            include_remember=True,
         )
-        quantity = st.number_input("購入・用意した数量", min_value=0.1, value=float(candidate.get("quantity") or 1), step=0.1, key=f"new-quantity-{editor_key}")
-        unit_value = str(candidate.get("unit") or "")
-        unit = st.selectbox(
-            "単位", UNIT_OPTIONS, index=UNIT_OPTIONS.index(unit_value) if unit_value in UNIT_OPTIONS else 0,
-            key=f"new-unit-{editor_key}",
-        )
-        consumed_quantity = st.number_input(
-            "摂取した数量", min_value=0.0, max_value=float(quantity), value=float(quantity), step=0.1,
-            help="0なら購入・予定として保持され、Daily nutritionへ加算されません。",
-            key=f"new-consumed-{editor_key}",
-        )
-        nutrition = deepcopy(candidate.get("nutrition") or {})
-        calories = _nutrition_input("1単位あたり Calories", nutrition.get("calories_kcal"), f"new-kcal-{editor_key}")
-        protein = _nutrition_input("1単位あたり Protein", nutrition.get("protein_g"), f"new-p-{editor_key}")
-        fat = _nutrition_input("1単位あたり Fat", nutrition.get("fat_g"), f"new-f-{editor_key}")
-        carbs = _nutrition_input("1単位あたり Carbs", nutrition.get("carbs_g"), f"new-c-{editor_key}")
-        basis = _nutrition_basis_input(nutrition, unit, f"new-basis-{editor_key}")
-        source_default = "概算値として入力" if candidate.get("source_type") in {"unknown", "estimated"} and calories is not None else "候補の値を使用"
-        source_label = st.radio(
-            "栄養値の由来", list(SOURCE_MODE_OPTIONS), index=list(SOURCE_MODE_OPTIONS).index(source_default),
-            horizontal=True, key=f"new-source-{editor_key}",
-        )
-        notes = st.text_input("備考", key=f"new-notes-{editor_key}")
-        remember = st.checkbox("この食品の栄養値を今後も使用する", key=f"new-remember-{editor_key}")
         if st.button("食品を追加", type="primary", key=f"new-add-{editor_key}"):
-            candidate["canonical_name"] = name
-            candidate["display_name"] = name
-            prepared = prepare_capture_item(
-                candidate,
-                meal_type=meal_type,
-                quantity=quantity,
-                unit=unit,
-                consumed_quantity=consumed_quantity,
-                nutrition={
-                    "basis": basis,
-                    "calories_kcal": calories,
-                    "protein_g": protein,
-                    "fat_g": fat,
-                    "carbs_g": carbs,
-                    "sugar_g": None,
-                    "fiber_g": None,
-                    "salt_g": None,
-                },
-                source_mode=SOURCE_MODE_OPTIONS[source_label],
-                notes=notes,
-            )
-            if remember:
+            try:
+                prepared = prepare_food_candidate_editor_result(
+                    candidate,
+                    editor_values,
+                )
+            except ValueError as exc:
+                st.error(str(exc))
+                return deepcopy(items)
+            if editor_values["remember"]:
                 if prepared["source_type"] != "user_label":
                     st.error("今後も使う値は「商品ラベルで確認」を選択してください。概算値は確定保存しません。")
                     return deepcopy(items)
@@ -389,6 +437,7 @@ __all__ = [
     "FOOD_KNOWLEDGE_LAST_SAVE_DEBUG_KEY",
     "FOOD_KNOWLEDGE_RUNTIME_DEBUG_KEY",
     "FOOD_KNOWLEDGE_SEARCH_DEBUG_KEY",
+    "render_food_candidate_editor",
     "render_food_knowledge_debug_panel",
     "render_smart_food_capture",
 ]

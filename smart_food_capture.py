@@ -77,6 +77,21 @@ def resolve_capture_nutrition_basis(nutrition: Any, unit: Any) -> dict[str, Any]
     return resolved
 
 
+def capture_editor_nutrition_basis(
+    nutrition: Any,
+    unit: Any,
+    *,
+    preserve_unknown: bool = False,
+) -> str:
+    """Choose the Editor basis without guessing for unconfirmed capture evidence."""
+    source = nutrition if isinstance(nutrition, dict) else {}
+    raw_basis = str(source.get("basis") or "unknown")
+    if preserve_unknown and raw_basis == "unknown":
+        return "unknown"
+    resolved_basis = resolve_capture_nutrition_basis(source, unit)["basis"]
+    return default_capture_nutrition_basis(unit) if resolved_basis == "unknown" else resolved_basis
+
+
 def _nutrition(value: Any, *, basis: str = "unknown") -> dict[str, Any]:
     source = value if isinstance(value, dict) else {}
     return {
@@ -470,6 +485,43 @@ def prepare_capture_item(
     return prepared
 
 
+def prepare_food_candidate_editor_result(
+    candidate: dict[str, Any],
+    editor_values: dict[str, Any],
+    *,
+    capture_id: str | None = None,
+) -> dict[str, Any]:
+    """Apply shared Editor values through the existing capture preparation path."""
+    edited_candidate = deepcopy(candidate)
+    capture_metadata = candidate.get("capture_metadata")
+    is_unconfirmed_label_capture = (
+        isinstance(capture_metadata, dict)
+        and capture_metadata.get("capture_channel") == "label_ocr"
+        and not candidate.get("confirmed")
+    )
+    nutrition = deepcopy(editor_values.get("nutrition") or {})
+    if (
+        is_unconfirmed_label_capture
+        and any(nutrition.get(field) is not None for field in NUTRITION_FIELDS)
+        and str(nutrition.get("basis") or "unknown") == "unknown"
+    ):
+        raise ValueError("OCR-derived nutrition requires an explicit basis before confirmation.")
+    name = str(editor_values.get("name") or "").strip()
+    edited_candidate["canonical_name"] = name
+    edited_candidate["display_name"] = name
+    return prepare_capture_item(
+        edited_candidate,
+        meal_type=str(editor_values.get("meal_type") or "snacks"),
+        quantity=editor_values.get("quantity"),
+        unit=editor_values.get("unit"),
+        consumed_quantity=editor_values.get("consumed_quantity"),
+        nutrition=nutrition,
+        source_mode=str(editor_values.get("source_mode") or "candidate"),
+        notes=editor_values.get("notes"),
+        capture_id=capture_id,
+    )
+
+
 def calculate_capture_item_total(item: dict[str, Any]) -> dict[str, Any]:
     """Scale one captured food using consumed quantity only."""
     if not isinstance(item, dict) or _number(item.get("consumed_quantity")) in (None, 0):
@@ -682,11 +734,13 @@ __all__ = [
     "canonical_workout_from_text",
     "calculate_capture_item_total",
     "calculate_daily_nutrition",
+    "capture_editor_nutrition_basis",
     "canonical_builder_result",
     "captured_meal_texts",
     "candidates_from_resolution",
     "normalize_capture_unit",
     "prepare_capture_item",
+    "prepare_food_candidate_editor_result",
     "search_food_candidates",
     "search_food_candidates_with_diagnostics",
     "source_presentation",

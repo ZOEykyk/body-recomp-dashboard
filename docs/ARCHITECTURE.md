@@ -56,6 +56,10 @@ Body Score / Coach feedback
 - `food_resolver.py`: Pure application-level Single Source of Truth for candidate collection, source selection, quantity-aware nutrition, fallback, confidence, and resolution counts.
 - `smart_food_capture.py`: Pure FoodCandidate, search ranking, quantity/consumption calculation, daily nutrition aggregation, and Canonical Schema 1.0 builder.
 - `smart_food_capture_ui.py`: Responsive Streamlit search, source/confidence display, editor, and Purchased/Consumed input layer.
+- `capture_models.py`: Storage-neutral CaptureObservation, field-evidence, warning, and future identifier contracts.
+- `capture_provider.py`: Persistence-free Capture Provider interface and deterministic Fake OCR adapter.
+- `nutrition_label_parser.py`: Pure Japanese nutrition-label text parser for kcal, kJ, P/F/C, basis, ambiguity, and warnings.
+- `food_candidate_factory.py`: CaptureObservation adapter for the existing backward-compatible FoodCandidate contract.
 - `food_source_models.py`: One shared metadata contract for every nutrition source.
 - `food_source_policy.py`: Pure deterministic product-tier and source-level priority, freshness, validity, and conflict-resolution policy.
 - `food_master_models.py`: Personal Food Master record and encounter contracts.
@@ -144,6 +148,24 @@ CSV Projection and existing Encounter persistence
 ```
 
 Confirmed Food persists through the existing `FoodMasterRepository`; JSON and Supabase adapters therefore share the same behavior. Planned Food remains UI input state and is not projected as a consumed Encounter. No parallel resolver, CSV schema, Schema 1.1, or PR15-specific database is introduced.
+
+PR16.1 adds a channel-neutral Capture boundary before the existing FoodCandidate flow:
+
+```text
+CaptureProvider
+↓
+CaptureObservation
+↓
+FoodCandidateFactory
+↓
+Shared FoodCandidate Editor
+↓
+User Confirmation
+↓
+prepare_capture_item() / optional confirm_capture_food()
+```
+
+`capture_channel` describes how evidence arrived; it never determines nutrition trust. OCR extraction confidence is retained under `capture_metadata`, while an OCR-derived candidate remains unconfirmed and review-required. Only the existing user-label Confirmation path may create an `explicit_user_label` source. Capture Provider and label-parser modules have no Repository dependency and cannot persist observations. See [Capture Foundation](CAPTURE_FOUNDATION.md).
 
 ## Dashboard Layer
 
