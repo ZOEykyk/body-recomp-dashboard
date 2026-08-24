@@ -81,6 +81,50 @@ class NutritionLabelParserTests(unittest.TestCase):
         self.assertEqual(per_100g["field_evidence"]["size"][0]["value"], "180g")
         self.assertEqual(per_100ml["field_evidence"]["size"][0]["value"], "250ml")
 
+    def test_content_amount_one_bag_does_not_set_basis(self) -> None:
+        result = parse_nutrition_label_text("内容量 1袋\n栄養成分表示\n熱量 100kcal")
+        self.assertEqual(result["nutrition"]["basis"], "unknown")
+        self.assertIn("basis_unknown", {warning["code"] for warning in result["warnings"]})
+
+    def test_content_amount_one_item_does_not_set_basis(self) -> None:
+        result = parse_nutrition_label_text("内容量 1個\n栄養成分表示\n熱量 100kcal")
+        self.assertEqual(result["nutrition"]["basis"], "unknown")
+
+    def test_content_amount_grams_does_not_set_per_100g_basis(self) -> None:
+        result = parse_nutrition_label_text("内容量 95g\n栄養成分表示\n熱量 100kcal")
+        self.assertEqual(result["nutrition"]["basis"], "unknown")
+        self.assertEqual(result["field_evidence"]["size"][0]["value"], "95g")
+
+    def test_content_amount_milliliters_does_not_set_per_100ml_basis(self) -> None:
+        result = parse_nutrition_label_text("内容量 500ml\n栄養成分表示\n熱量 100kcal")
+        self.assertEqual(result["nutrition"]["basis"], "unknown")
+        self.assertEqual(result["field_evidence"]["size"][0]["value"], "500ml")
+
+    def test_explicit_per_bag_basis(self) -> None:
+        result = parse_nutrition_label_text("栄養成分表示 1袋あたり\n熱量 100kcal")
+        self.assertEqual(result["nutrition"]["basis"], "per_package")
+
+    def test_explicit_per_package_basis_with_kanji_atari(self) -> None:
+        result = parse_nutrition_label_text("栄養成分表示 1包装当たり\n熱量 100kcal")
+        self.assertEqual(result["nutrition"]["basis"], "per_package")
+
+    def test_explicit_per_item_basis(self) -> None:
+        result = parse_nutrition_label_text("栄養成分表示 1個あたり\n熱量 100kcal")
+        self.assertEqual(result["nutrition"]["basis"], "per_item")
+
+    def test_explicit_per_100g_basis(self) -> None:
+        result = parse_nutrition_label_text("栄養成分表示 100gあたり\n熱量 100kcal")
+        self.assertEqual(result["nutrition"]["basis"], "per_100g")
+
+    def test_explicit_per_100ml_basis_with_kanji_atari(self) -> None:
+        result = parse_nutrition_label_text("栄養成分表示 100ml当たり\n熱量 100kcal")
+        self.assertEqual(result["nutrition"]["basis"], "per_100ml")
+
+    def test_explicit_basis_wins_when_content_amount_is_also_present(self) -> None:
+        result = parse_nutrition_label_text("内容量 95g\n栄養成分表示 1袋あたり\n熱量 100kcal")
+        self.assertEqual(result["nutrition"]["basis"], "per_package")
+        self.assertEqual(result["field_evidence"]["size"][0]["value"], "95g")
+
     def test_kcal_has_priority_over_kj(self) -> None:
         result = self.parse("kcal_and_kj")
         self.assertEqual(result["nutrition"]["calories_kcal"], 100.0)

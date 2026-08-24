@@ -71,9 +71,9 @@ def _basis_evidence(text: str) -> tuple[str, list[dict[str, Any]], list[dict[str
     patterns = (
         ("per_100g", r"100\s*g\s*(?:あたり|当たり)"),
         ("per_100ml", r"100\s*ml\s*(?:あたり|当たり)"),
-        ("per_package", r"(?:1|一)\s*(?:包装|袋|パック|容器)\s*(?:あたり|当たり)?"),
-        ("per_serving", r"(?:1|一)\s*食(?:分)?\s*(?:あたり|当たり)?"),
-        ("per_item", r"(?:1|一)\s*個\s*(?:あたり|当たり)?"),
+        ("per_package", r"(?:1|一)\s*(?:包装|袋|パック|容器)\s*(?:あたり|当たり)"),
+        ("per_serving", r"(?:1|一)\s*食(?:分)?\s*(?:あたり|当たり)"),
+        ("per_item", r"(?:1|一)\s*個\s*(?:あたり|当たり)"),
     )
     evidence: list[dict[str, Any]] = []
     for basis, pattern in patterns:
