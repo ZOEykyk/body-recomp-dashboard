@@ -217,6 +217,23 @@ def validate_immediate_confirmed_search(repository: Any, label: str) -> tuple[in
         },
         f"{label}: calories and P/F/C restored",
     )
+    cloud_food = deepcopy(stored[0])
+    cloud_source = cloud_food["nutrition_sources"][0]["source"]
+    cloud_source["captured_at"] = "2026-08-17T00:00:00+00:00"
+    cloud_source["verified_at"] = "2026-08-17T00:00:00+00:00"
+    cloud_matches, cloud_diagnostics = search_food_candidates_with_diagnostics(
+        name,
+        build_food_knowledge_snapshot([cloud_food]),
+    )
+    check(bool(cloud_matches), f"{label}: Supabase timestamptz source remains searchable")
+    check(
+        cloud_diagnostics["personal_trace"][0]["source_selection_status"] == "selected",
+        f"{label}: Supabase timestamptz source is selected",
+    )
+    check(
+        cloud_diagnostics["personal_trace"][0]["drop_reason"] == "included",
+        f"{label}: Supabase timestamptz source is not dropped",
+    )
     check(search_diagnostics["personal_name_match_count"] == 1, f"{label}: diagnostics observe name match")
     check(search_diagnostics["personal_source_selected_count"] == 1, f"{label}: diagnostics observe selected source")
     check(

@@ -13,7 +13,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from food_lookup import FOOD_LOOKUP_CATALOG, lookup_food
 from food_parser import parse_food_text
-from food_source_models import SOURCE_METADATA_FIELDS, explicit_user_label_source, source_metadata_errors
+from food_source_models import (
+    SOURCE_METADATA_FIELDS,
+    explicit_user_label_source,
+    parse_source_date,
+    source_metadata_errors,
+)
 from food_source_policy import is_source_current, is_source_fresh, select_nutrition_source, source_priority
 from validate_pr8_2 import install_fake_streamlit
 
@@ -71,6 +76,16 @@ def main() -> None:
     explicit_source = explicit_user_label_source(captured_at="2026-07-13")
     assert_equal(set(explicit_source), set(SOURCE_METADATA_FIELDS), "shared explicit source contract")
     assert_equal(source_metadata_errors(explicit_source), [], "explicit source validation")
+    assert_equal(
+        parse_source_date("2026-08-17T00:00:00+00:00"),
+        dt.date(2026, 8, 17),
+        "Supabase timestamptz parses as source date",
+    )
+    assert_equal(
+        parse_source_date("2026-08-17T00:00:00Z"),
+        dt.date(2026, 8, 17),
+        "UTC Z timestamp parses as source date",
+    )
 
     official_source = source("official_product_page", "official-1")
     explicit_vs_official = select_nutrition_source(

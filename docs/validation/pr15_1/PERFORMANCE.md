@@ -185,5 +185,22 @@ search text:
 
 The panel is diagnostic instrumentation, not a second lookup implementation:
 candidate results and drop reasons are emitted by the same search loop used by
-the UI. The definitive hosted root cause remains unconfirmed until these values
-are captured from the failing Streamlit Cloud process.
+the UI.
+
+## Cloud Root Cause: Supabase Timestamp Hydration
+
+The hosted diagnostic trace confirmed that the saved food was active, its name
+matched, and one `explicit_user_label` source was hydrated, but Source Policy
+returned `not_found` and dropped it as `source_not_selected`.
+
+Supabase stores `captured_at` and `verified_at` as `timestamptz`. PostgREST
+therefore returns values such as `2026-08-17T00:00:00+00:00`, while the shared
+source parser previously accepted only `YYYY-MM-DD`. Metadata validation
+discarded the source before current-source selection even though its type,
+status, and nutrition were valid.
+
+`parse_source_date()` now accepts date objects, datetime objects, ISO dates,
+offset-aware ISO timestamps, and `Z` timestamps. Invalid values and invalid
+validity windows remain rejected. A Cloud-shaped search regression verifies
+that the hydrated source changes from `not_found / source_not_selected` to
+`selected / included` and restores the Personal Food candidate.
