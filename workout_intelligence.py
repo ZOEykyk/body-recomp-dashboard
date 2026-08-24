@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from performance_instrumentation import instrument
+
 WORKOUT_INTELLIGENCE_VERSION = "1.0"
 
 
@@ -250,6 +252,7 @@ def detect_prs(exercises: list[dict[str, Any]], history_best: dict[str, dict[str
     return prs
 
 
+@instrument("workout_intelligence.engine")
 def analyze_workout(record: dict[str, Any], history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Analyze workout text without mutating the input record."""
     text = workout_text_from_record(record)

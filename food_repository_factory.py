@@ -109,16 +109,25 @@ class FallbackFoodMasterRepository(FoodMasterRepository):
     def _call(self, method: str, *args: Any, write: bool = False, **kwargs: Any) -> Any:
         if not self._using_fallback and self.primary is not None:
             try:
-                return getattr(self.primary, method)(*args, **kwargs)
+                result = getattr(self.primary, method)(*args, **kwargs)
+                if write and self._write_changed(result):
+                    self._mark_write()
+                return result
             except Exception as exc:
                 self._using_fallback = True
                 self._fallback_reason = f"{type(exc).__name__}: {exc}"
                 LOGGER.warning("Food Knowledge switched to JSON fallback: %s", type(exc).__name__)
         result = getattr(self.fallback, method)(*args, **kwargs)
         if write:
-            inserted = not isinstance(result, dict) or bool(result.get("inserted", True))
+            inserted = self._write_changed(result)
             self._unsynced_count += int(inserted)
+            if inserted:
+                self._mark_write()
         return result
+
+    @staticmethod
+    def _write_changed(result: Any) -> bool:
+        return not isinstance(result, dict) or bool(result.get("inserted", True))
 
     def list_foods(self, user_id: str) -> list[dict[str, Any]]:
         return self._call("list_foods", user_id)
@@ -189,6 +198,11 @@ class FallbackFoodMasterRepository(FoodMasterRepository):
             }
         )
         return status
+
+    def cache_revision(self) -> int:
+        # Keep one monotonic namespace across primary/fallback transitions. Using
+        # the active backend's local counter can reuse an earlier cache key.
+        return super().cache_revision()
 
 
 def normalize_repository_mode(config: dict[str, str]) -> str:

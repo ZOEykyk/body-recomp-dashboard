@@ -36,10 +36,19 @@ CONFIDENCE_LEVELS = {"high", "medium", "low"}
 
 
 def parse_source_date(value: Any) -> dt.date | None:
-    if value in {None, ""}:
+    if value is None or value == "":
         return None
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    text = str(value).strip()
     try:
-        return dt.date.fromisoformat(str(value))
+        return dt.date.fromisoformat(text)
+    except ValueError:
+        pass
+    try:
+        return dt.datetime.fromisoformat(text.replace("Z", "+00:00")).date()
     except ValueError:
         return None
 

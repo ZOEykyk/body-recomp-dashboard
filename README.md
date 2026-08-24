@@ -140,6 +140,12 @@ Streamlitアプリの高レベルな流れは `app.py` が担当し、ダッシ�
 
 この分離は保守性のためのリファクタリングで、CSVスキーマ、JSON取り込み、Body Score計算、カロリー推定、Workout Intelligenceの公開インターフェースは変更しません。
 
+### Runtime Performance
+
+Repository/Supabase client、静的Food Catalog、ユーザー別Food Knowledge、CSV読込、Dashboardの決定的な集計は、それぞれの更新頻度に合わせてキャッシュします。Personal Foodは短いTTLと書き込みrevisionで管理され、保存・Alias追加・栄養値更新後は次のrerunで即時反映されます。
+
+開発時に`BODYOS_PERFORMANCE_DEBUG=1`を設定すると、画面末尾の`Performance Debug`で主要処理の直近値・中央値・最大値を確認できます。計測には処理名と時間だけを保存し、食品内容、ユーザー情報、Secretsは記録しません。計測条件とBefore/Afterは[PR15.1 Performance Report](docs/validation/pr15_1/PERFORMANCE.md)を参照してください。
+
 Dashboard v1.0は、開いた直後に今日の状態を把握できるように、Body Score、今日のメトリクス、Workout Intelligence Top 3、コア推移、履歴、詳細分析の順に表示します。主要チャートは Body Score、体重、摂取カロリー、歩数に絞り、低価値な補助チャートは主画面から外しています。この整理は表示のみの変更で、履歴データ、CSVスキーマ、JSON取り込み、採点ルールは変更しません。
 
 ## Data Integrity

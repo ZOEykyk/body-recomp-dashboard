@@ -41,6 +41,7 @@ from data_integrity import (
 )
 from dashboard import render_dashboard
 from food_master_repository import JsonFoodMasterRepository
+from food_knowledge_diagnostics import repository_runtime_diagnostics
 from food_repository_factory import create_food_master_repository
 from food_master_models import meal_content_fingerprint
 from food_master_ui import render_food_master_management
@@ -48,6 +49,8 @@ from food_knowledge_dashboard import render_food_knowledge_dashboard
 from food_parser import parse_food_text
 from food_resolver import RESOLUTION_ORIGINS, build_food_knowledge_snapshot, resolve_food_text
 from personal_food_master import remember_food_encounters_with_summary
+from performance_instrumentation import PERFORMANCE, instrument, measure, performance_debug_enabled
+from runtime_cache import clear_cached_function, streamlit_cache
 from schema_contract import load_canonical_example
 from smart_food_capture import (
     canonical_builder_result,
@@ -56,7 +59,11 @@ from smart_food_capture import (
     prepare_capture_item,
     unknown_candidate,
 )
-from smart_food_capture_ui import CAPTURE_STATE_KEY, render_smart_food_capture
+from smart_food_capture_ui import (
+    CAPTURE_STATE_KEY,
+    render_food_knowledge_debug_panel,
+    render_smart_food_capture,
+)
 
 DATA_FILE = "records.csv"
 TARGET_WEIGHT = 76.0
@@ -294,11 +301,19 @@ def food_repository_config() -> dict[str, str]:
 
 
 PERSONAL_FOOD_USER_ID = get_config_value("FOOD_KNOWLEDGE_USER_ID", DEFAULT_PERSONAL_FOOD_USER_ID)
-LOCAL_FOOD_REPOSITORY = JsonFoodMasterRepository(
-    Path(__file__).with_name(PERSONAL_FOOD_MASTER_FILE),
-    Path(__file__).with_name(FOOD_ENCOUNTERS_FILE),
-)
-PERSONAL_FOOD_REPOSITORY = create_food_master_repository(food_repository_config(), LOCAL_FOOD_REPOSITORY)
+
+
+@streamlit_cache(st, "cache_resource", show_spinner=False)
+def build_personal_food_repository():
+    """Create one process-level repository/client without putting secrets in a cache key."""
+    local_repository = JsonFoodMasterRepository(
+        Path(__file__).with_name(PERSONAL_FOOD_MASTER_FILE),
+        Path(__file__).with_name(FOOD_ENCOUNTERS_FILE),
+    )
+    return create_food_master_repository(food_repository_config(), local_repository)
+
+
+PERSONAL_FOOD_REPOSITORY = build_personal_food_repository()
 
 
 def github_storage_config() -> dict[str, str]:
@@ -374,13 +389,38 @@ def write_github_records(csv_text: str) -> None:
     github_request("PUT", github_file_url(), payload)
 
 
+@streamlit_cache(st, "cache_data", ttl=30, max_entries=32, show_spinner=False)
+def cached_personal_foods(user_id: str, repository_revision: int) -> list[dict[str, Any]]:
+    del repository_revision
+    return PERSONAL_FOOD_REPOSITORY.build_snapshot(user_id)["personal_foods"]
+
+
+@streamlit_cache(st, "cache_data", ttl=3600, show_spinner=False)
+def cached_static_food_knowledge() -> dict[str, Any]:
+    return build_food_knowledge_snapshot([])
+
+
 def current_food_knowledge() -> dict[str, Any]:
+    revision = PERSONAL_FOOD_REPOSITORY.cache_revision()
     try:
-        repository_snapshot = PERSONAL_FOOD_REPOSITORY.build_snapshot(PERSONAL_FOOD_USER_ID)
+        with measure("food_knowledge.personal_snapshot", repository_revision=revision):
+            personal_foods = cached_personal_foods(PERSONAL_FOOD_USER_ID, revision)
     except Exception as exc:
         LOGGER.warning("Food Knowledge read failed: %s", type(exc).__name__)
-        repository_snapshot = {"personal_foods": []}
-    return build_food_knowledge_snapshot(repository_snapshot["personal_foods"])
+        personal_foods = []
+    with measure("food_knowledge.static_snapshot"):
+        static = cached_static_food_knowledge()
+    return {
+        "metadata": static["metadata"],
+        "personal_foods": personal_foods,
+        "official_catalog": static["official_catalog"],
+        "generic_catalog": static["generic_catalog"],
+    }
+
+
+def invalidate_personal_food_cache() -> None:
+    """Make confirmed Food Knowledge visible on the immediately following rerun."""
+    clear_cached_function(cached_personal_foods)
 
 
 def estimate_calorie_detail(
@@ -413,6 +453,7 @@ def remember_saved_meals(
     record_date: str,
     operation_id: str,
     used_at: str,
+    knowledge: dict[str, Any] | None = None,
 ) -> dict[str, int]:
     """Persist Personal Food Master encounters only for newly saved/imported records."""
     summary = {
@@ -431,7 +472,11 @@ def remember_saved_meals(
             parsed_foods = parse_food_text(str(text), meal_type)
         resolution = detail.get("food_resolution") if isinstance(detail, dict) else None
         if not isinstance(resolution, dict):
-            resolution = resolve_food_text(str(text), meal_type, knowledge=current_food_knowledge())
+            resolution = resolve_food_text(
+                str(text),
+                meal_type,
+                knowledge=knowledge if knowledge is not None else current_food_knowledge(),
+            )
         for origin in RESOLUTION_ORIGINS:
             summary[origin] += int((resolution.get("resolution_counts") or {}).get(origin, 0))
         persistence = remember_food_encounters_with_summary(
@@ -857,7 +902,12 @@ def get_nested_value(data: dict[str, Any], keys: list[str]) -> Any:
     return None
 
 
-def normalize_record(raw: dict[str, Any], record_number: int = 1) -> dict[str, Any]:
+def normalize_record(
+    raw: dict[str, Any],
+    record_number: int = 1,
+    *,
+    food_knowledge: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     row = {column: "" for column in COLUMNS}
     errors: list[str] = []
 
@@ -884,11 +934,12 @@ def normalize_record(raw: dict[str, Any], record_number: int = 1) -> dict[str, A
     for column in ["朝", "昼", "夜", "間食", "仕事中のドリンク", "筋トレ内容", "体調", "飲酒", "飲酒内容", "飲酒レベル", "コメント"]:
         row[column] = "" if row[column] is None else str(row[column])
 
-    breakfast_detail = estimate_calorie_detail(row["朝"], "朝")
-    lunch_detail = estimate_calorie_detail(row["昼"], "昼")
-    dinner_detail = estimate_calorie_detail(row["夜"], "夜")
-    snacks_detail = estimate_calorie_detail(row["間食"], "間食")
-    drinks_detail = estimate_calorie_detail(row["仕事中のドリンク"], "仕事中のドリンク")
+    knowledge = food_knowledge if food_knowledge is not None else current_food_knowledge()
+    breakfast_detail = estimate_calorie_detail(row["朝"], "朝", knowledge=knowledge)
+    lunch_detail = estimate_calorie_detail(row["昼"], "昼", knowledge=knowledge)
+    dinner_detail = estimate_calorie_detail(row["夜"], "夜", knowledge=knowledge)
+    snacks_detail = estimate_calorie_detail(row["間食"], "間食", knowledge=knowledge)
+    drinks_detail = estimate_calorie_detail(row["仕事中のドリンク"], "仕事中のドリンク", knowledge=knowledge)
 
     row["朝カロリー(kcal)"] = int(breakfast_detail["kcal"])
     row["昼カロリー(kcal)"] = int(lunch_detail["kcal"])
@@ -949,19 +1000,22 @@ def normalize_columns(data: pd.DataFrame) -> pd.DataFrame:
     return data[COLUMNS]
 
 
-def load_data() -> pd.DataFrame:
-    if github_storage_enabled():
-        try:
-            csv_text, _ = read_github_records()
-            loaded = pd.read_csv(StringIO(csv_text)) if csv_text else pd.DataFrame(columns=COLUMNS)
-        except Exception as exc:
-            st.error(f"GitHub上のrecords.csvを読み込めませんでした: {exc}")
-            loaded = pd.DataFrame(columns=COLUMNS)
-    elif Path(DATA_FILE).exists():
-        loaded = pd.read_csv(DATA_FILE)
-    else:
-        loaded = pd.DataFrame(columns=COLUMNS)
+@streamlit_cache(st, "cache_data", ttl=30, max_entries=8, show_spinner=False)
+def cached_github_records(repository: str, branch: str, path: str) -> str | None:
+    del repository, branch, path
+    csv_text, _ = read_github_records()
+    return csv_text
 
+
+@streamlit_cache(st, "cache_data", max_entries=8, show_spinner=False)
+def cached_local_records(path: str, modified_ns: int, size: int) -> str:
+    del modified_ns, size
+    return Path(path).read_text(encoding="utf-8-sig")
+
+
+@streamlit_cache(st, "cache_data", max_entries=8, show_spinner=False)
+def normalized_records_from_csv(csv_text: str) -> pd.DataFrame:
+    loaded = pd.read_csv(StringIO(csv_text)) if csv_text else pd.DataFrame(columns=COLUMNS)
     loaded = normalize_columns(loaded)
 
     if not loaded.empty:
@@ -982,11 +1036,30 @@ def load_data() -> pd.DataFrame:
     return loaded
 
 
+def load_data() -> pd.DataFrame:
+    csv_text: str | None = None
+    if github_storage_enabled():
+        try:
+            config = github_storage_config()
+            csv_text = cached_github_records(config["repository"], config["branch"], config["path"])
+        except Exception as exc:
+            st.error(f"GitHub上のrecords.csvを読み込めませんでした: {exc}")
+            csv_text = None
+    elif Path(DATA_FILE).exists():
+        path = Path(DATA_FILE)
+        stat = path.stat()
+        csv_text = cached_local_records(str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+
+    with measure("records.load_and_normalize", source="github" if github_storage_enabled() else "local"):
+        return normalized_records_from_csv(csv_text or "")
+
+
 def csv_text_from_data(data: pd.DataFrame) -> str:
     data = normalize_columns(data)
     return data.to_csv(index=False)
 
 
+@instrument("records.save")
 def save_data(data: pd.DataFrame) -> None:
     data = normalize_columns(data)
     csv_text = csv_text_from_data(data)
@@ -1007,6 +1080,9 @@ def save_data(data: pd.DataFrame) -> None:
         temporary_path.replace(destination)
     finally:
         temporary_path.unlink(missing_ok=True)
+    clear_cached_function(cached_github_records)
+    clear_cached_function(cached_local_records)
+    clear_cached_function(normalized_records_from_csv)
 
 
 def upsert_records(data: pd.DataFrame, rows: pd.DataFrame) -> tuple[pd.DataFrame, int, int]:
@@ -1074,10 +1150,14 @@ IMPORT_SECTION_COLUMNS = {
 }
 
 
-def build_import_rows(document: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def build_import_rows(
+    document: dict[str, Any],
+    *,
+    food_knowledge: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     projected_rows: list[dict[str, Any]] = []
     diagnostics: list[dict[str, Any]] = []
-    knowledge = current_food_knowledge()
+    knowledge = food_knowledge if food_knowledge is not None else current_food_knowledge()
     for record in document.get("records") or []:
         nutrition = resolve_record_nutrition(
             record,
@@ -1179,7 +1259,15 @@ def predict_target_date(data: pd.DataFrame, target_weight: float) -> str:
     return f"現在ペースなら、約{days_needed}日後（{target_date.strftime('%Y/%m/%d')}）に{target_weight:.1f}kg到達見込みです。"
 
 
-df = load_data()
+with measure("app.bootstrap"):
+    df = load_data()
+    active_food_knowledge = current_food_knowledge()
+food_knowledge_runtime = repository_runtime_diagnostics(
+    PERSONAL_FOOD_REPOSITORY,
+    PERSONAL_FOOD_USER_ID,
+    active_food_knowledge,
+    cached_personal_food_count=len(active_food_knowledge.get("personal_foods") or []),
+)
 storage_config = github_storage_config()
 if github_storage_enabled():
     st.caption(f"保存先: GitHub `{storage_config['repository']}/{storage_config['path']}` ({storage_config['branch']})")
@@ -1196,14 +1284,16 @@ else:
         TARGET_WEIGHT,
         predict_target_date,
         training_counted,
-        food_knowledge=current_food_knowledge(),
+        food_knowledge=active_food_knowledge,
     )
 
 st.header("今日の記録")
 smart_capture_items = render_smart_food_capture(
     PERSONAL_FOOD_REPOSITORY,
     PERSONAL_FOOD_USER_ID,
-    current_food_knowledge(),
+    active_food_knowledge,
+    on_food_knowledge_changed=invalidate_personal_food_cache,
+    runtime_diagnostics=food_knowledge_runtime,
 )
 with st.form("daily_record_form"):
     basic_col1, basic_col2 = st.columns(2)
@@ -1252,11 +1342,11 @@ with st.form("daily_record_form"):
     score = st.slider("今日の採点", min_value=0, max_value=100, value=70, step=5)
     comment = st.text_area("コメント", placeholder="例：空腹感は少なめ。明日は歩数を増やす。", height=80)
 
-    breakfast_detail = estimate_calorie_detail(breakfast, "朝")
-    lunch_detail = estimate_calorie_detail(lunch, "昼")
-    dinner_detail = estimate_calorie_detail(dinner, "夜")
-    snacks_detail = estimate_calorie_detail(snacks, "間食")
-    drinks_detail = estimate_calorie_detail(work_drinks, "仕事中のドリンク")
+    breakfast_detail = estimate_calorie_detail(breakfast, "朝", knowledge=active_food_knowledge)
+    lunch_detail = estimate_calorie_detail(lunch, "昼", knowledge=active_food_knowledge)
+    dinner_detail = estimate_calorie_detail(dinner, "夜", knowledge=active_food_knowledge)
+    snacks_detail = estimate_calorie_detail(snacks, "間食", knowledge=active_food_knowledge)
+    drinks_detail = estimate_calorie_detail(work_drinks, "仕事中のドリンク", knowledge=active_food_knowledge)
     legacy_capture_items = [
         *legacy_meal_capture_items(breakfast, breakfast_detail, "breakfast", breakfast_kcal_manual),
         *legacy_meal_capture_items(lunch, lunch_detail, "lunch", lunch_kcal_manual),
@@ -1300,7 +1390,7 @@ if submitted:
     canonical_record = daily_builder["canonical"]
     resolved_daily_nutrition = resolve_record_nutrition(
         canonical_record,
-        lambda text, meal_type: resolve_food_text(text, meal_type, knowledge=current_food_knowledge()),
+        lambda text, meal_type: resolve_food_text(text, meal_type, knowledge=active_food_knowledge),
     )
     canonical_projection = canonical_to_projection(canonical_record, resolved_daily_nutrition)
     breakfast_kcal = canonical_projection.get("朝カロリー(kcal)")
@@ -1379,6 +1469,7 @@ if submitted:
                 record_date=record_date.isoformat(),
                 operation_id=f"manual-save:{record_date.isoformat()}",
                 used_at=pd.to_datetime(record_date).isoformat(),
+                knowledge=active_food_knowledge,
             )
         except Exception as exc:
             food_summary = empty_food_resolution_summary()
@@ -1522,7 +1613,10 @@ if isinstance(import_document, dict) and isinstance(import_preview, dict):
         started_at = time.monotonic()
         operation_id = operation_import_id()
         try:
-            projected_rows, import_diagnostics = build_import_rows(import_document)
+            projected_rows, import_diagnostics = build_import_rows(
+                import_document,
+                food_knowledge=active_food_knowledge,
+            )
             existing_dates = set(pd.to_datetime(df["日付"], errors="coerce").dt.strftime("%Y-%m-%d").dropna())
             updated_data, save_counts = apply_import_rows(
                 df,
@@ -1552,6 +1646,7 @@ if isinstance(import_document, dict) and isinstance(import_preview, dict):
                         record_date=canonical_record["date"],
                         operation_id=f"json-import:{imported_record['Import ID']}",
                         used_at=f"{canonical_record['date']}T00:00:00",
+                        knowledge=active_food_knowledge,
                     )
                     merge_food_resolution_summary(food_summary, imported_summary)
             except Exception as exc:
@@ -1647,7 +1742,14 @@ if not df.empty:
         except Exception as exc:
             st.error(f"Body Scoreの再計算に失敗しました: {exc}")
 
-render_food_knowledge_dashboard(PERSONAL_FOOD_REPOSITORY, PERSONAL_FOOD_USER_ID)
-render_food_master_management(PERSONAL_FOOD_REPOSITORY, PERSONAL_FOOD_USER_ID)
+show_food_knowledge_tools = st.toggle("Food Knowledge詳細を表示", value=False)
+if show_food_knowledge_tools:
+    render_food_knowledge_dashboard(PERSONAL_FOOD_REPOSITORY, PERSONAL_FOOD_USER_ID)
+    render_food_master_management(PERSONAL_FOOD_REPOSITORY, PERSONAL_FOOD_USER_ID)
+    render_food_knowledge_debug_panel()
+
+if performance_debug_enabled():
+    with st.expander("Performance Debug", expanded=False):
+        st.dataframe(pd.DataFrame(PERFORMANCE.summary()), use_container_width=True, hide_index=True)
 
 st.caption("注意: カロリーは概算です。正確にしたい日は手入力欄を使ってください。")

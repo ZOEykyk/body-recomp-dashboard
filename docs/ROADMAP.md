@@ -26,6 +26,7 @@
 - PR13 Data Import & Dashboard Reliability
 - PR14 Schema Contract Hardening
 - PR15 Smart Food Capture & Nutrition Accuracy
+- PR15.1 Performance Optimization & Runtime Efficiency
 - PR8 Body Score AI
 - PR9 Coach AI
 - Future Lifestyle Intelligence

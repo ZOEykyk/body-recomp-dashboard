@@ -10,6 +10,7 @@ from typing import Any
 from food_aliases import normalize_food_name
 from food_master_models import normalized_identity_key
 from food_master_models import FOOD_MASTER_VERSION, utc_now
+from performance_instrumentation import instrument
 
 
 class FoodMasterRepository(ABC):
@@ -23,6 +24,8 @@ class FoodMasterRepository(ABC):
         self._last_successful_read: str | None = None
         self._last_successful_write: str | None = None
         self._last_error: str | None = None
+        self._cache_revision = 0
+        self._cache_lock = RLock()
 
     def _mark_read(self) -> None:
         self._last_successful_read = utc_now()
@@ -30,7 +33,14 @@ class FoodMasterRepository(ABC):
 
     def _mark_write(self) -> None:
         self._last_successful_write = utc_now()
+        with self._cache_lock:
+            self._cache_revision += 1
         self._last_error = None
+
+    def cache_revision(self) -> int:
+        """Cheap process-local revision used to invalidate read-through caches."""
+        with self._cache_lock:
+            return self._cache_revision
 
     def _mark_error(self, exc: Exception) -> None:
         self._last_error = f"{type(exc).__name__}: {exc}"
@@ -199,6 +209,7 @@ class FoodMasterRepository(ABC):
         stored_encounter = self.append_encounter(user_id, encounter)
         return {"inserted": True, "duplicate": False, "food": stored_food, "encounter": stored_encounter}
 
+    @instrument("repository.build_snapshot")
     def build_snapshot(self, user_id: str, *, include_encounters: bool = False) -> dict[str, Any]:
         return self.get_knowledge_snapshot(user_id, include_encounters=include_encounters)
 
