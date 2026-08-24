@@ -387,9 +387,18 @@ def main() -> None:
         inactive_food.update({"canonical_name": "診断対象食品", "status": "archived"})
         source_missing_food = personal_food(1002, user_id)
         source_missing_food.update({"canonical_name": "診断対象食品", "nutrition_sources": []})
+        malformed_source_food = personal_food(1003, user_id)
+        malformed_source_food.update(
+            {
+                "canonical_name": "診断対象食品",
+                "nutrition_sources": [
+                    {"source": None, "nutrition": {"basis": "per_item", "calories_kcal": 99}}
+                ],
+            }
+        )
         _, drop_diagnostics = search_food_candidates_with_diagnostics(
             "診断対象食品",
-            build_food_knowledge_snapshot([inactive_food, source_missing_food]),
+            build_food_knowledge_snapshot([inactive_food, source_missing_food, malformed_source_food]),
         )
         drop_reasons = {trace["food_id"]: trace["drop_reason"] for trace in drop_diagnostics["personal_trace"]}
         check(
@@ -399,6 +408,16 @@ def main() -> None:
         check(
             drop_reasons[source_missing_food["food_id"]] == "source_not_selected",
             "search diagnostics identify nutrition source selection drop",
+        )
+        malformed_trace = next(
+            trace
+            for trace in drop_diagnostics["personal_trace"]
+            if trace["food_id"] == malformed_source_food["food_id"]
+        )
+        check(
+            malformed_trace["drop_reason"] == "source_not_selected"
+            and malformed_trace["source_types"] == ["unknown"],
+            "malformed persisted source metadata is diagnosed without crashing search",
         )
         dashboard_data = pd.read_csv(ROOT / "records.csv")
         dashboard_data["日付"] = pd.to_datetime(dashboard_data["日付"], errors="coerce")

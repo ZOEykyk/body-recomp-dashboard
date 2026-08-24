@@ -262,13 +262,15 @@ def _suggestion_from_catalog(food: dict[str, Any], origin: str) -> dict[str, Any
 
 
 def _source_types(food: dict[str, Any]) -> list[str]:
-    return sorted(
-        {
-            str(source.get("source", {}).get("source_type") or "unknown")
-            for source in (food.get("nutrition_sources") or [])
-            if isinstance(source, dict)
-        }
-    )
+    source_types: set[str] = set()
+    for candidate in food.get("nutrition_sources") or []:
+        if not isinstance(candidate, dict):
+            continue
+        source = candidate.get("source")
+        source_types.add(
+            str(source.get("source_type") or "unknown") if isinstance(source, dict) else "unknown"
+        )
+    return sorted(source_types)
 
 
 def _search_food_candidates(

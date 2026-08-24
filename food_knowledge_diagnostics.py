@@ -60,13 +60,15 @@ def _repository_status(repository: Any) -> dict[str, Any]:
 
 
 def _source_types(food: dict[str, Any] | None) -> list[str]:
-    return sorted(
-        {
-            str(candidate.get("source", {}).get("source_type") or "unknown")
-            for candidate in ((food or {}).get("nutrition_sources") or [])
-            if isinstance(candidate, dict)
-        }
-    )
+    source_types: set[str] = set()
+    for candidate in (food or {}).get("nutrition_sources") or []:
+        if not isinstance(candidate, dict):
+            continue
+        source = candidate.get("source")
+        source_types.add(
+            str(source.get("source_type") or "unknown") if isinstance(source, dict) else "unknown"
+        )
+    return sorted(source_types)
 
 
 def _selection_diagnostics(food: dict[str, Any] | None) -> dict[str, Any]:
