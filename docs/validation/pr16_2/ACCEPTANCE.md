@@ -26,9 +26,23 @@ Dedicated app: https://body-recomp-dashboard-pr16-2-test.streamlit.app/
 
 - PASS: the PR branch deployed and the Streamlit dashboard started without an application exception.
 - PASS: Smart Food Capture and the label-image upload section render in the hosted app.
-- PENDING: verify the metadata-only `ocr_runtime` panel after this acceptance diagnostic commit deploys.
+- PASS: metadata-only `ocr_runtime` panel deployed at source revision `807ab104bdaf`.
 - PENDING: hosted Tesseract execution and real-label accuracy checks.
 - PENDING: Supabase-backed Personal Food Master save/reboot checks because production secrets are not configured in the dedicated app.
+
+Hosted runtime metadata before OCR:
+
+- Tesseract executable: detected
+- Tesseract version: 5.5.0
+- Languages: `eng`, `jpn`, `osd`
+- Japanese / English: available
+- Pillow: 11.3.0
+- pytesseract: 0.3.13
+- OCR runtime: not initialized
+- OCR cache: empty, 0 / 8 entries
+- Repository: `JsonFoodMasterRepository`, connected
+- Supabase: not configured in this dedicated app
+- Fallback active: false
 
 Required before Draft removal:
 
