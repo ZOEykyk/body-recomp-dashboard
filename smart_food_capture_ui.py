@@ -428,27 +428,31 @@ def _render_label_capture(
     on_food_knowledge_changed: Callable[[], None] | None,
 ) -> None:
     with st.expander("栄養ラベル画像から追加", expanded=False):
-        st.caption("カメラ撮影またはJPG/JPEG/PNG・最大10MB。画像とOCR原文は保存されません。結果を確認・修正してください。")
+        st.caption("JPG/JPEG/PNG・最大10MB。画像とOCR原文は保存されません。結果を確認・修正してください。")
         input_method = st.radio(
             "画像の入力方法",
-            ("カメラで撮影", "画像をUpload"),
-            horizontal=True,
+            ("高画質で撮影・写真から選択（推奨）", "クイック撮影（1080p）"),
             key="label-ocr-input-method",
         )
-        if input_method == "カメラで撮影":
-            st.info("撮影のコツ: 栄養成分表示へ近づき、文字を画面いっぱいにして、反射を避けてピントを合わせてください。")
+        if input_method == "高画質で撮影・写真から選択（推奨）":
+            st.info("スマートフォンでは「ファイルを選択」からカメラ撮影または写真を選べます。ラベルの文字が鮮明な画像を使用してください。")
+            selected_image = st.file_uploader(
+                "高画質の栄養ラベル画像",
+                type=["image/jpeg", "image/png"],
+                key="label-ocr-upload",
+            )
+            preview_caption = "高画質撮影・選択画像"
+            input_method_code = "native_or_upload"
+        else:
+            st.info("栄養成分表示へ近づき、文字を画面いっぱいにして、反射を避けてピントを合わせてください。")
             selected_image = st.camera_input(
                 "栄養ラベルを撮影",
                 key="label-ocr-camera",
+                resolution="1080p",
+                width="stretch",
             )
-            preview_caption = "撮影画像"
-        else:
-            selected_image = st.file_uploader(
-                "栄養ラベル画像",
-                type=["jpg", "jpeg", "png"],
-                key="label-ocr-upload",
-            )
-            preview_caption = "アップロード画像"
+            preview_caption = "クイック撮影画像"
+            input_method_code = "quick_camera_1080p"
         suggested_name = st.text_input(
             "食品名（任意）",
             placeholder="例：商品名や味",
@@ -500,7 +504,7 @@ def _render_label_capture(
                     st.session_state[LABEL_OCR_CANDIDATE_KEY] = result["candidate"]
                     st.session_state[LABEL_OCR_METRICS_KEY] = {
                         "status": "completed",
-                        "input_method": "camera" if input_method == "カメラで撮影" else "upload",
+                        "input_method": input_method_code,
                         **result["metrics"],
                     }
             if action_manual.button("手入力で続ける", key="label-ocr-manual", width="stretch"):

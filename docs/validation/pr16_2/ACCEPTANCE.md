@@ -19,6 +19,9 @@ Date: 2026-08-25
 - PASS: normal Streamlit startup approximately 0.5 seconds in AppTest without OCR initialization.
 - PASS: JSON and Supabase adapters restore confirmed Calories/P/F/C.
 - PASS: Canonical, Repository, and source scans exclude image bytes, raw OCR text, and `capture_metadata`.
+- PASS: Python 3.12.13 environment resolves the complete project dependency set with pinned Streamlit 1.59.0.
+- PASS: the recommended native-camera/photo uploader is the first capture option; Quick Camera requests 1080p.
+- PASS: at a 390px browser viewport, document/body scroll width remains 390px and Quick Camera uses the available 324px content width.
 
 The local label is generated test media, not a photographed commercial package. Real-label accuracy is not claimed by local validation.
 
@@ -48,6 +51,7 @@ Hosted runtime metadata before OCR:
 - Repository: `SupabaseFoodMasterRepository`, connected
 - Supabase: configured in the dedicated app
 - Fallback active: false
+- Python / Streamlit after the runtime-pin deployment: pending
 
 Required before Draft removal:
 
@@ -65,14 +69,15 @@ Required before Draft removal:
 Use an iPhone or equivalent smartphone against the dedicated PR16.2 Test App:
 
 1. Open Smart Food Capture and expand `栄養ラベル画像から追加`.
-2. Select `カメラで撮影` and allow camera permission.
-3. Photograph a Japanese nutrition label and confirm the preview is readable without horizontal overflow.
-4. Run OCR and confirm Calories / Protein / Fat / Carbohydrates and basis flow into one review-required Candidate.
-5. Correct any OCR errors in the shared Editor and explicitly confirm the item.
-6. Confirm Daily Food and Daily Nutrition reflect only the corrected values.
-7. Repeat OCR for the same captured image during the same process and confirm a cache hit and no extra OCR execution.
-8. Confirm Repository revision and food counts remain unchanged before Confirmation.
-9. Inspect persisted stores and confirm the camera image, processed image, and raw OCR text are absent.
+2. Use `高画質で撮影・写真から選択（推奨）` and select the native camera or a library photo.
+3. Repeat with `クイック撮影（1080p）` and allow camera permission.
+4. Photograph a Japanese nutrition label and confirm the preview is readable without horizontal overflow.
+5. Run OCR and confirm Calories / Protein / Fat / Carbohydrates and basis flow into one review-required Candidate.
+6. Correct any OCR errors in the shared Editor and explicitly confirm the item.
+7. Confirm Daily Food and Daily Nutrition reflect only the corrected values.
+8. Repeat OCR for the same captured image during the same process and confirm a cache hit and no extra OCR execution.
+9. Confirm Repository revision and food counts remain unchanged before Confirmation.
+10. Inspect persisted stores and confirm the camera image, processed image, and raw OCR text are absent.
 
 Record device/browser, viewport width, camera permission result, OCR/cache timing, Candidate/Editor/Confirmation result, and any layout issue. The camera path must preserve the same Supabase save, immediate search, and reboot restoration checks used by uploaded images.
 
@@ -80,11 +85,12 @@ Record device/browser, viewport width, camera permission result, OCR/cache timin
 
 Repeat the same label after preprocessing v1.1 and compare it with the original Camera result and a high-quality Upload. Input metadata appears before OCR; preprocessing and OCR metadata is under `画像・OCR診断（内容非表示）`.
 
-| Case | Input px | Input bytes / format / EXIF orientation | Enhanced px | Source px | Selected variant | OCR ms | Fields / 4 | Manual corrections |
-| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: |
-| Before Camera | pending | pending | pending | pending | pending |  |  |  |
-| After Camera | pending | pending | pending | pending | pending |  |  |  |
-| High-quality Upload | pending | pending | pending | pending | pending |  |  |  |
+| Method | Input px | File bytes | OCR px | Fields / 4 | Basis | OCR ms | Manual corrections |
+| --- | --- | ---: | --- | ---: | --- | ---: | ---: |
+| `camera_input` default baseline | pending |  |  |  |  |  |  |
+| Quick Camera 1080p | pending |  |  |  |  |  |  |
+| Native Camera via uploader | pending |  |  |  |  |  |  |
+| Photo-library upload | pending |  |  |  |  |  |  |
 
 Do not put image hashes, raw OCR text, food names, nutrition values, or non-orientation EXIF data in this comparison.
 
@@ -93,6 +99,7 @@ Before uploading a label, enable `Food Knowledge詳細を表示` and record only
 - Tesseract executable detected, version, and available languages
 - `jpn` / `eng` availability
 - Pillow / pytesseract versions
+- Python / Streamlit versions
 - OCR initialized status and cache entry count
 - Repository type, connection status, and fallback state
 

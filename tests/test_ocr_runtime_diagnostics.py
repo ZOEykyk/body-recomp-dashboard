@@ -26,7 +26,11 @@ class OcrRuntimeDiagnosticsTests(unittest.TestCase):
         ), patch.object(
                 diagnostics,
                 "_package_version",
-                side_effect=lambda name: {"Pillow": "11.0", "pytesseract": "0.3.13"}[name],
+                side_effect=lambda name: {
+                    "Pillow": "11.0",
+                    "pytesseract": "0.3.13",
+                    "streamlit": "1.59.0",
+                }[name],
         ), patch.object(
                 diagnostics,
                 "ocr_runtime_state",
@@ -41,6 +45,8 @@ class OcrRuntimeDiagnosticsTests(unittest.TestCase):
         self.assertTrue(result["eng_available"])
         self.assertEqual(result["pillow_version"], "11.0")
         self.assertEqual(result["pytesseract_version"], "0.3.13")
+        self.assertEqual(result["streamlit_version"], "1.59.0")
+        self.assertRegex(result["python_version"], r"^\d+\.\d+\.\d+$")
         self.assertFalse(result["runtime"]["initialized"])
         serialized = json.dumps(result, sort_keys=True)
         self.assertNotIn("/private", serialized)

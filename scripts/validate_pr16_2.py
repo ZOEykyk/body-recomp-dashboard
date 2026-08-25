@@ -37,19 +37,27 @@ def main() -> None:
     startup_ms = (time.perf_counter() - started) * 1000
     check(not app.exception, "Streamlit app renders without OCR initialization errors")
     check(
-        any(item.proto.label == "栄養ラベルを撮影" for item in app.get("camera_input")),
-        "Label camera input renders",
+        any(item.proto.label == "高画質の栄養ラベル画像" for item in app.get("file_uploader")),
+        "high-quality native/upload path renders first",
+    )
+    check(
+        any("カメラ撮影または写真" in str(item.value) for item in app.info),
+        "native camera and photo guidance renders",
+    )
+    input_method = next(item for item in app.radio if item.key == "label-ocr-input-method")
+    check(input_method.value == "高画質で撮影・写真から選択（推奨）", "high-quality path is the default")
+    app = input_method.set_value("クイック撮影（1080p）").run()
+    check(not app.exception, "switching to quick camera renders without exceptions")
+    check(
+        any(
+            item.proto.label == "栄養ラベルを撮影" and item.proto.resolution_height == 1080
+            for item in app.get("camera_input")
+        ),
+        "quick camera requests 1080p capture",
     )
     check(
         any("栄養成分表示へ近づき" in str(item.value) for item in app.info),
-        "mobile camera guidance renders",
-    )
-    input_method = next(item for item in app.radio if item.key == "label-ocr-input-method")
-    app = input_method.set_value("画像をUpload").run()
-    check(not app.exception, "switching label input method renders without exceptions")
-    check(
-        any(item.proto.label == "栄養ラベル画像" for item in app.get("file_uploader")),
-        "Label image uploader renders",
+        "quick camera guidance renders",
     )
     check(any(item.key == "smart-food-query" for item in app.text_input), "normal Food Search remains available")
     check(startup_ms < 15_000, "normal app startup remains bounded")
@@ -60,6 +68,8 @@ def main() -> None:
     json_values = [json.loads(item.value) for item in app.get("json")]
     debug_payload = next(item for item in json_values if isinstance(item, dict) and "ocr_runtime" in item)
     ocr_runtime = debug_payload["ocr_runtime"]
+    check(ocr_runtime.get("python_version", "").startswith("3.12."), "Python 3.12 runtime is observable")
+    check(ocr_runtime.get("streamlit_version") == "1.59.0", "pinned Streamlit runtime is observable")
     check("tesseract_executable_detected" in ocr_runtime, "Tesseract detection is observable")
     check("available_languages" in ocr_runtime, "OCR languages are observable")
     check("runtime" in ocr_runtime and "cache" in ocr_runtime, "OCR initialization and cache metadata are observable")

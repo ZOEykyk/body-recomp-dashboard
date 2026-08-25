@@ -3,7 +3,7 @@
 ## Flow
 
 ```text
-Camera capture or JPG / JPEG / PNG upload
+Native camera / photo selection, quick camera, or JPG / JPEG / PNG upload
 -> Pillow preprocessing
 -> LabelOcrProvider / Tesseract jpn+eng
 -> CaptureObservation
@@ -16,7 +16,7 @@ Camera capture or JPG / JPEG / PNG upload
 
 PR16.2 adds no alternate food model and no persistence API. OCR modules do not import Repository, Food Master, Supabase, or Daily Record code.
 
-The Streamlit UI offers both `st.camera_input()` and `st.file_uploader()`. Both return image bytes to the same preprocessing and OCR entry point; input origin does not create a separate downstream branch or alter the PR16.1 Capture contract.
+The primary mobile path is `st.file_uploader()` so iOS and Android can use their native camera or photo chooser. The secondary quick path is `st.camera_input(resolution="1080p", width="stretch")`. Both return image bytes to the same preprocessing and OCR entry point; input origin does not create a separate downstream branch or alter the PR16.1 Capture contract.
 
 ## Runtime
 
@@ -66,7 +66,7 @@ Corrupt images, missing Tesseract/language data, execution failure, timeout, unr
 
 ## Deployment
 
-Python dependencies are declared in `requirements.txt`. Streamlit Community Cloud system packages are declared in `packages.txt` as Tesseract plus English and Japanese language data. Cloud Acceptance must remain pending until a deployed PR branch is exercised with 3-5 real Japanese labels, manual correction, Personal Food Master restore, reboot persistence, cache reuse, failure fallback, and Supabase privacy inspection.
+Python dependencies are declared in `requirements.txt`, with Streamlit pinned to `1.59.0` for the camera resolution contract. The project development runtime is Python 3.12 as declared in `.python-version`; Streamlit 1.59 requires Python 3.10 or newer. Streamlit Community Cloud must use Python 3.12 in its deployment settings because an existing Cloud app's Python version is not changed by repository files. System packages are declared in `packages.txt` as Tesseract plus English and Japanese language data. Cloud Acceptance must remain pending until a deployed PR branch is exercised with 3-5 real Japanese labels, manual correction, Personal Food Master restore, reboot persistence, cache reuse, failure fallback, and Supabase privacy inspection.
 
 ## Barcode Extension
 

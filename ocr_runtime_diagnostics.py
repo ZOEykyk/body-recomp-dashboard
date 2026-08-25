@@ -5,12 +5,13 @@ from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version as package_version
 import shutil
 import subprocess
+import sys
 from typing import Any
 
 from label_ocr_runtime import OCR_RUNTIME_CACHE, OcrRuntimeCache, ocr_runtime_state
 
 
-OCR_RUNTIME_DIAGNOSTICS_VERSION = "pr16.2-cloud-v1"
+OCR_RUNTIME_DIAGNOSTICS_VERSION = "pr16.2-cloud-v2"
 
 
 def _package_version(name: str) -> str | None:
@@ -59,6 +60,8 @@ def _environment_metadata() -> dict[str, Any]:
     available_languages = sorted(set(available_languages))
 
     return {
+        "python_version": ".".join(str(value) for value in sys.version_info[:3]),
+        "streamlit_version": _package_version("streamlit"),
         "tesseract_executable_detected": bool(executable),
         "tesseract_version": tesseract_version,
         "available_languages": available_languages,
