@@ -21,7 +21,10 @@ The Streamlit UI offers both `st.camera_input()` and `st.file_uploader()`. Both 
 ## Runtime
 
 - Pillow applies EXIF orientation, RGB normalization, bounded resize, grayscale, autocontrast, and light contrast enhancement.
-- The grayscale variant runs first. The normalized RGB variant runs only when no nutrition field is detected, and the safer result is selected by field count then OCR confidence.
+- Images with a long edge below 2200px are upscaled toward 2200px, capped at 3x. Typical 4032px iPhone photos retain source resolution; only images above 4200px on the long edge are bounded for runtime safety.
+- The decoded source RGB stays at its original oriented resolution. RGB conversion is in-memory and does not re-encode or recompress JPEG data.
+- Enhanced grayscale and source RGB both run through OCR. Selection prioritizes complete Calories/P/F/C extraction, then OCR confidence and token count.
+- Sharpening was tested but is not enabled in v1.1 because it reduced extraction in the regression fixture. The source variant remains available when contrast enhancement performs worse.
 - pytesseract uses Tesseract with `jpn+eng`, OEM 3, PSM 6, and a bounded timeout.
 - Pillow and pytesseract are lazy imports, so ordinary Food Search does not initialize OCR.
 - Common OCR character spacing is normalized only for Parser input. Raw extraction remains separate and candidates always require review.
@@ -54,6 +57,8 @@ Only user-confirmed name, quantity, unit, nutrition, and existing source metadat
 The existing `Food Knowledge詳細を表示` panel includes a metadata-only `ocr_runtime` section for hosted acceptance. It reports Tesseract detection/version/languages, `jpn` and `eng` availability, Pillow and pytesseract versions, initialization status, and cache entry counts. Repository type, connection status, and fallback state remain in the adjacent `runtime` section.
 
 The diagnostic contract never includes executable paths, environment values, secrets, image hashes, cache keys, image data, OCR text, food names, or nutrition values. The environment probe does not initialize the OCR engine.
+
+After image selection, the UI shows only width, height, byte size, format, EXIF presence, and EXIF orientation. After OCR it adds preprocessing dimensions/scale, per-variant field count/confidence/time, selected variant, and cache status. Other EXIF fields are intentionally excluded because they may contain private device or location data.
 
 ## Failure Behavior
 

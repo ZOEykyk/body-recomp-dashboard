@@ -9,7 +9,9 @@ Date: 2026-08-24
 - PASS: Calories 120 kcal, Protein 3.2 g, Fat 1.5 g, Carbs 20.1 g, `per_item` extraction.
 - PASS: OCR Candidate remains unconfirmed and review-required.
 - PASS: shared Editor and explicit Confirmation produce Daily Nutrition at 100% coverage.
-- PASS: first OCR approximately 393 ms; same-image cache hit approximately 7 ms.
+- PASS: preprocessing v1.1 synthetic-label OCR approximately 551 ms across enhanced/source variants; same-image cache hit approximately 7 ms.
+- PASS: synthetic label retains 4/4 fields after preprocessing changes: 120 kcal / P3.2g / F1.5g / C20.1g.
+- PASS: 4032×3024 input is not downscaled; low-resolution input is upscaled toward a 2200px long edge with a 3x cap.
 - PASS: camera and upload inputs render through one shared image-byte pipeline; identical bytes reuse the same SHA cache entry.
 - PASS: camera and upload selection render at 390px with no horizontal overflow in the local Streamlit app.
 - PASS: preprocessing approximately 34 ms; Candidate generation approximately 0.1 ms.
@@ -28,7 +30,7 @@ Dedicated app: https://body-recomp-dashboard-pr16-2-test.streamlit.app/
 
 - PASS: the PR branch deployed and the Streamlit dashboard started without an application exception.
 - PASS: Smart Food Capture and the label-image upload section render in the hosted app.
-- PENDING: mobile camera capture on iPhone at 390-430px width.
+- PARTIAL: iPhone Camera → OCR → Candidate → Editor → Confirmation works, but small-label OCR is limited by Camera input quality.
 - PASS: metadata-only `ocr_runtime` panel deployed at source revision `807ab104bdaf`.
 - PENDING: hosted Tesseract execution and real-label accuracy checks.
 - PENDING: Supabase-backed Personal Food Master save/reboot checks because production secrets are not configured in the dedicated app.
@@ -73,6 +75,18 @@ Use an iPhone or equivalent smartphone against the dedicated PR16.2 Test App:
 9. Inspect persisted stores and confirm the camera image, processed image, and raw OCR text are absent.
 
 Record device/browser, viewport width, camera permission result, OCR/cache timing, Candidate/Editor/Confirmation result, and any layout issue. The camera path must preserve the same Supabase save, immediate search, and reboot restoration checks used by uploaded images.
+
+### Camera Quality Comparison
+
+Repeat the same label after preprocessing v1.1 and compare it with the original Camera result and a high-quality Upload. Input metadata appears before OCR; preprocessing and OCR metadata is under `画像・OCR診断（内容非表示）`.
+
+| Case | Input px | Input bytes / format / EXIF orientation | Enhanced px | Source px | Selected variant | OCR ms | Fields / 4 | Manual corrections |
+| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: |
+| Before Camera | pending | pending | pending | pending | pending |  |  |  |
+| After Camera | pending | pending | pending | pending | pending |  |  |  |
+| High-quality Upload | pending | pending | pending | pending | pending |  |  |  |
+
+Do not put image hashes, raw OCR text, food names, nutrition values, or non-orientation EXIF data in this comparison.
 
 Before uploading a label, enable `Food Knowledge詳細を表示` and record only these metadata fields:
 

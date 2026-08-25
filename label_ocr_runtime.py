@@ -16,7 +16,7 @@ from image_preprocessing import IMAGE_PREPROCESSING_VERSION, preprocess_label_im
 from nutrition_label_parser import parse_nutrition_label_text
 
 
-LABEL_OCR_PROVIDER_VERSION = "1.0"
+LABEL_OCR_PROVIDER_VERSION = "1.1"
 DEFAULT_OCR_LANGUAGE = "jpn+eng"
 DEFAULT_OCR_TIMEOUT_SECONDS = 15
 OCR_CORE_NUTRITION_FIELDS = ("calories_kcal", "protein_g", "fat_g", "carbs_g")
@@ -254,31 +254,84 @@ class LabelOcrProvider(CaptureProvider):
 
     def _extract(self, image_bytes: bytes) -> dict[str, Any]:
         preprocessed = preprocess_label_image(image_bytes)
-        primary = self._engine.recognize(
-            preprocessed.primary,
-            language=self._language,
-            timeout_seconds=self._timeout_seconds,
-        )
-        primary_parser_text, _ = normalize_ocr_text_for_parser(primary.get("raw_text") or "")
-        primary_parsed = parse_nutrition_label_text(primary_parser_text)
-        selected = {**primary, "variant": "autocontrast_grayscale"}
-        if _known_nutrition_count(primary_parsed) == 0:
-            fallback = self._engine.recognize(
+        variant_specs = (
+            (
+                "enhanced_grayscale",
+                preprocessed.primary,
+                preprocessed.width,
+                preprocessed.height,
+            ),
+            (
+                "source_rgb",
                 preprocessed.fallback,
-                language=self._language,
-                timeout_seconds=self._timeout_seconds,
+                preprocessed.fallback_width,
+                preprocessed.fallback_height,
+            ),
+        )
+        results: list[dict[str, Any]] = []
+        failures: list[LabelOcrError] = []
+        for variant_name, image, width, height in variant_specs:
+            try:
+                recognized = self._engine.recognize(
+                    image,
+                    language=self._language,
+                    timeout_seconds=self._timeout_seconds,
+                )
+            except LabelOcrError as exc:
+                failures.append(exc)
+                continue
+            parser_text, _ = normalize_ocr_text_for_parser(recognized.get("raw_text") or "")
+            parsed = parse_nutrition_label_text(parser_text)
+            results.append(
+                {
+                    **recognized,
+                    "variant": variant_name,
+                    "width": width,
+                    "height": height,
+                    "field_count": _known_nutrition_count(parsed),
+                }
             )
-            fallback_parser_text, _ = normalize_ocr_text_for_parser(fallback.get("raw_text") or "")
-            fallback_parsed = parse_nutrition_label_text(fallback_parser_text)
-            primary_score = (_known_nutrition_count(primary_parsed), primary.get("confidence") or 0)
-            fallback_score = (_known_nutrition_count(fallback_parsed), fallback.get("confidence") or 0)
-            if fallback_score > primary_score:
-                selected = {**fallback, "variant": "normalized_rgb"}
+        if not results:
+            raise failures[0] if failures else LabelOcrError("OCR execution failed.")
+
+        selected = max(
+            results,
+            key=lambda result: (
+                int(result.get("field_count") or 0),
+                float(result.get("confidence") or 0),
+                int(result.get("token_count") or 0),
+            ),
+        )
+        variant_metrics = [
+            {
+                "variant": result["variant"],
+                "width": result["width"],
+                "height": result["height"],
+                "field_count": result["field_count"],
+                "confidence": result.get("confidence"),
+                "ocr_ms": result.get("elapsed_ms"),
+            }
+            for result in results
+        ]
         return {
             **selected,
+            "elapsed_ms": round(sum(float(result.get("elapsed_ms") or 0) for result in results), 3),
+            "selected_ocr_ms": selected.get("elapsed_ms"),
             "preprocessing_ms": preprocessed.elapsed_ms,
-            "width": preprocessed.width,
-            "height": preprocessed.height,
+            "input_width": preprocessed.source_width,
+            "input_height": preprocessed.source_height,
+            "input_file_size_bytes": preprocessed.file_size_bytes,
+            "input_format": preprocessed.source_format,
+            "input_exif_present": preprocessed.exif_present,
+            "input_exif_orientation": preprocessed.exif_orientation,
+            "preprocessed_width": preprocessed.width,
+            "preprocessed_height": preprocessed.height,
+            "source_variant_width": preprocessed.fallback_width,
+            "source_variant_height": preprocessed.fallback_height,
+            "preprocessing_scale_factor": preprocessed.scale_factor,
+            "preprocessing_resized": preprocessed.resized,
+            "variant_metrics": variant_metrics,
+            "variant_failure_count": len(failures),
         }
 
     def capture(self, request: CaptureRequest) -> CaptureObservation:
@@ -329,8 +382,21 @@ class LabelOcrProvider(CaptureProvider):
             "candidate_fields": _known_nutrition_count(parsed),
             "token_count": extracted.get("token_count"),
             "variant": extracted.get("variant"),
-            "image_width": extracted.get("width"),
-            "image_height": extracted.get("height"),
+            "input_width": extracted.get("input_width"),
+            "input_height": extracted.get("input_height"),
+            "input_file_size_bytes": extracted.get("input_file_size_bytes"),
+            "input_format": extracted.get("input_format"),
+            "input_exif_present": extracted.get("input_exif_present"),
+            "input_exif_orientation": extracted.get("input_exif_orientation"),
+            "preprocessed_width": extracted.get("preprocessed_width"),
+            "preprocessed_height": extracted.get("preprocessed_height"),
+            "source_variant_width": extracted.get("source_variant_width"),
+            "source_variant_height": extracted.get("source_variant_height"),
+            "preprocessing_scale_factor": extracted.get("preprocessing_scale_factor"),
+            "preprocessing_resized": extracted.get("preprocessing_resized"),
+            "variant_metrics": deepcopy(extracted.get("variant_metrics") or []),
+            "variant_failure_count": extracted.get("variant_failure_count"),
+            "selected_ocr_ms": extracted.get("selected_ocr_ms"),
             "engine": identity["engine"],
             "engine_version": identity["engine_version"],
             "preprocessing_version": identity["preprocessing_version"],

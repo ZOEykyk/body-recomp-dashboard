@@ -11,7 +11,7 @@ from food_knowledge_diagnostics import (
     confirmed_save_diagnostics,
     food_knowledge_user_key,
 )
-from image_preprocessing import MAX_IMAGE_BYTES
+from image_preprocessing import ImagePreprocessingError, MAX_IMAGE_BYTES, inspect_label_image_metadata
 from label_ocr_runtime import LabelOcrError, capture_label_image, image_sha256
 from ocr_runtime_diagnostics import ocr_runtime_metadata_diagnostics
 from personal_food_master import confirm_capture_food
@@ -371,6 +371,55 @@ def _confirmed_editor_item(
     return prepared
 
 
+def _render_input_image_metadata(metadata: dict[str, Any]) -> None:
+    size_kb = float(metadata.get("file_size_bytes") or 0) / 1024
+    exif_label = "あり" if metadata.get("exif_present") else "なし"
+    orientation = metadata.get("exif_orientation")
+    orientation_label = str(orientation) if orientation is not None else "—"
+    st.caption(
+        f"入力画像 {int(metadata.get('width') or 0)}×{int(metadata.get('height') or 0)}px / "
+        f"{size_kb:,.0f}KB / {metadata.get('format') or 'unknown'} / "
+        f"EXIF {exif_label}（orientation {orientation_label}）"
+    )
+
+
+def _render_ocr_image_diagnostics(metrics: dict[str, Any]) -> None:
+    """Show acceptance metadata without image identity, content, or OCR text."""
+    with st.expander("画像・OCR診断（内容非表示）", expanded=False):
+        st.json(
+            {
+                "input": {
+                    "method": metrics.get("input_method"),
+                    "width": metrics.get("input_width"),
+                    "height": metrics.get("input_height"),
+                    "file_size_bytes": metrics.get("input_file_size_bytes"),
+                    "format": metrics.get("input_format"),
+                    "exif_present": metrics.get("input_exif_present"),
+                    "exif_orientation": metrics.get("input_exif_orientation"),
+                },
+                "preprocessing": {
+                    "version": metrics.get("preprocessing_version"),
+                    "enhanced_width": metrics.get("preprocessed_width"),
+                    "enhanced_height": metrics.get("preprocessed_height"),
+                    "source_width": metrics.get("source_variant_width"),
+                    "source_height": metrics.get("source_variant_height"),
+                    "scale_factor": metrics.get("preprocessing_scale_factor"),
+                    "resized": metrics.get("preprocessing_resized"),
+                    "elapsed_ms": metrics.get("preprocessing_ms"),
+                },
+                "ocr": {
+                    "selected_variant": metrics.get("variant"),
+                    "variant_metrics": metrics.get("variant_metrics") or [],
+                    "candidate_fields": metrics.get("candidate_fields"),
+                    "total_ocr_ms": metrics.get("ocr_ms"),
+                    "cache_hit": metrics.get("cache_hit"),
+                    "cache_lookup_ms": metrics.get("cache_lookup_ms"),
+                },
+            },
+            expanded=True,
+        )
+
+
 def _render_label_capture(
     items: list[dict[str, Any]],
     repository: FoodMasterRepository,
@@ -387,6 +436,7 @@ def _render_label_capture(
             key="label-ocr-input-method",
         )
         if input_method == "カメラで撮影":
+            st.info("撮影のコツ: 栄養成分表示へ近づき、文字を画面いっぱいにして、反射を避けてピントを合わせてください。")
             selected_image = st.camera_input(
                 "栄養ラベルを撮影",
                 key="label-ocr-camera",
@@ -406,6 +456,7 @@ def _render_label_capture(
         )
         current_hash = None
         image_bytes = None
+        input_metadata = None
         if selected_image is not None:
             image_bytes = selected_image.getvalue()
             if len(image_bytes) > MAX_IMAGE_BYTES:
@@ -417,6 +468,12 @@ def _render_label_capture(
                     st.image(image_bytes, caption=preview_caption, width="stretch")
                 except Exception:
                     st.warning("画像を表示できません。別のJPG/JPEG/PNGを選ぶか、手入力で続けてください。")
+                try:
+                    input_metadata = inspect_label_image_metadata(image_bytes)
+                except ImagePreprocessingError:
+                    input_metadata = None
+                if input_metadata:
+                    _render_input_image_metadata(input_metadata)
             action_ocr, action_manual = st.columns(2)
             if action_ocr.button(
                 "OCRを実行",
@@ -443,6 +500,7 @@ def _render_label_capture(
                     st.session_state[LABEL_OCR_CANDIDATE_KEY] = result["candidate"]
                     st.session_state[LABEL_OCR_METRICS_KEY] = {
                         "status": "completed",
+                        "input_method": "camera" if input_method == "カメラで撮影" else "upload",
                         **result["metrics"],
                     }
             if action_manual.button("手入力で続ける", key="label-ocr-manual", width="stretch"):
@@ -475,6 +533,7 @@ def _render_label_capture(
                 f"OCR {float(metrics.get('ocr_ms') or 0):,.0f}ms / "
                 f"候補生成 {float(metrics.get('candidate_ms') or 0):,.1f}ms"
             )
+            _render_ocr_image_diagnostics(metrics)
         st.markdown(_source_badge(candidate), unsafe_allow_html=True)
         editor_values = render_food_candidate_editor(
             candidate,

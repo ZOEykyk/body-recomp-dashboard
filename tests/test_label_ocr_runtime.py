@@ -12,7 +12,12 @@ from capture_provider import CaptureRequest
 from food_candidate_factory import food_candidate_from_observation
 from food_master_repository import JsonFoodMasterRepository
 from food_resolver import build_food_knowledge_snapshot
-from image_preprocessing import ImagePreprocessingError, preprocess_label_image
+from image_preprocessing import (
+    IMAGE_PREPROCESSING_VERSION,
+    ImagePreprocessingError,
+    inspect_label_image_metadata,
+    preprocess_label_image,
+)
 from label_ocr_runtime import (
     LabelOcrError,
     LabelOcrProvider,
@@ -78,6 +83,28 @@ class FakeImageOcrEngine:
         }
 
 
+class SequencedImageOcrEngine:
+    engine_name = "fake_tesseract"
+
+    def __init__(self, results: list[dict]) -> None:
+        self.results = results
+        self.calls = 0
+
+    def version(self) -> str:
+        return "5.fake"
+
+    def recognize(self, image: object, *, language: str, timeout_seconds: int) -> dict:
+        del image, language, timeout_seconds
+        result = self.results[self.calls]
+        self.calls += 1
+        return {
+            "raw_text": result["text"],
+            "confidence": result["confidence"],
+            "token_count": len(result["text"].split()),
+            "elapsed_ms": result.get("elapsed_ms", 12.0),
+        }
+
+
 class ImagePreprocessingTests(unittest.TestCase):
     def test_preprocessing_normalizes_and_times_image(self) -> None:
         result = preprocess_label_image(image_fixture(low_contrast=True, rotated=True))
@@ -85,7 +112,42 @@ class ImagePreprocessingTests(unittest.TestCase):
         self.assertEqual(result.fallback.mode, "RGB")
         self.assertGreater(result.width, 0)
         self.assertGreater(result.height, 0)
+        self.assertEqual(result.source_format, "PNG")
+        self.assertEqual(IMAGE_PREPROCESSING_VERSION, "1.1")
         self.assertGreaterEqual(result.elapsed_ms, 0)
+
+    def test_low_resolution_input_is_upscaled_without_resizing_source_variant(self) -> None:
+        image = Image.new("RGB", (900, 600), "white")
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=95)
+        result = preprocess_label_image(buffer.getvalue())
+        self.assertEqual((result.source_width, result.source_height), (900, 600))
+        self.assertEqual((result.fallback_width, result.fallback_height), (900, 600))
+        self.assertEqual((result.width, result.height), (2200, 1467))
+        self.assertAlmostEqual(result.scale_factor, 2200 / 900, places=3)
+
+    def test_typical_iphone_resolution_is_not_downscaled(self) -> None:
+        image = Image.new("RGB", (4032, 3024), "white")
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=85)
+        result = preprocess_label_image(buffer.getvalue())
+        self.assertEqual((result.source_width, result.source_height), (4032, 3024))
+        self.assertEqual((result.width, result.height), (4032, 3024))
+        self.assertEqual((result.fallback_width, result.fallback_height), (4032, 3024))
+        self.assertEqual(result.scale_factor, 1.0)
+        self.assertFalse(result.resized)
+
+    def test_metadata_exposes_only_safe_exif_summary(self) -> None:
+        image = Image.new("RGB", (120, 60), "white")
+        exif = Image.Exif()
+        exif[274] = 6
+        exif[270] = "private description"
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", exif=exif)
+        metadata = inspect_label_image_metadata(buffer.getvalue())
+        self.assertEqual(metadata["exif_orientation"], 6)
+        self.assertTrue(metadata["exif_present"])
+        self.assertNotIn("private description", json.dumps(metadata))
 
     def test_exif_orientation_is_applied(self) -> None:
         image = Image.new("RGB", (120, 60), "white")
@@ -145,7 +207,7 @@ class LabelOcrProviderTests(unittest.TestCase):
         first.capture(CaptureRequest(image, image_sha256=image_sha256(image)))
         second = LabelOcrProvider(engine, cache=cache)
         second.capture(CaptureRequest(image, image_sha256=image_sha256(image)))
-        self.assertEqual(engine.calls, 1)
+        self.assertEqual(engine.calls, 2)
         self.assertFalse(first.last_metrics["cache_hit"])
         self.assertTrue(second.last_metrics["cache_hit"])
 
@@ -160,8 +222,48 @@ class LabelOcrProviderTests(unittest.TestCase):
         provider.capture(CaptureRequest(uploaded_bytes, image_sha256=image_sha256(uploaded_bytes)))
 
         self.assertEqual(image_sha256(camera_bytes), image_sha256(uploaded_bytes))
-        self.assertEqual(engine.calls, 1)
+        self.assertEqual(engine.calls, 2)
         self.assertTrue(provider.last_metrics["cache_hit"])
+
+    def test_source_and_enhanced_variants_choose_higher_confidence_when_equally_complete(self) -> None:
+        text = CASES["standard_vertical"]["text"]
+        engine = SequencedImageOcrEngine(
+            [
+                {"text": text, "confidence": 0.70},
+                {"text": text, "confidence": 0.94},
+            ]
+        )
+        provider = LabelOcrProvider(engine, cache=OcrRuntimeCache())
+        provider.capture(CaptureRequest(image_fixture()))
+        self.assertEqual(provider.last_metrics["variant"], "source_rgb")
+        self.assertEqual(provider.last_metrics["candidate_fields"], 4)
+        self.assertEqual(len(provider.last_metrics["variant_metrics"]), 2)
+
+    def test_more_complete_variant_wins_over_higher_confidence_partial_result(self) -> None:
+        engine = SequencedImageOcrEngine(
+            [
+                {"text": CASES["partial_fields"]["text"], "confidence": 0.98},
+                {"text": CASES["standard_vertical"]["text"], "confidence": 0.72},
+            ]
+        )
+        provider = LabelOcrProvider(engine, cache=OcrRuntimeCache())
+        provider.capture(CaptureRequest(image_fixture()))
+        self.assertEqual(provider.last_metrics["variant"], "source_rgb")
+        self.assertEqual(provider.last_metrics["candidate_fields"], 4)
+
+    def test_metrics_compare_input_preprocessing_and_ocr_without_payload(self) -> None:
+        provider = LabelOcrProvider(
+            FakeImageOcrEngine(CASES["standard_vertical"]["text"]),
+            cache=OcrRuntimeCache(),
+        )
+        result = capture_label_image(image_fixture(), provider=provider)
+        metrics = result["metrics"]
+        self.assertEqual((metrics["input_width"], metrics["input_height"]), (520, 260))
+        self.assertGreater(metrics["preprocessed_width"], metrics["input_width"])
+        self.assertEqual((metrics["source_variant_width"], metrics["source_variant_height"]), (520, 260))
+        serialized = json.dumps(metrics, ensure_ascii=False)
+        self.assertNotIn("栄養成分表示", serialized)
+        self.assertNotIn("image_sha256", serialized)
 
     def test_unreadable_image_returns_reviewable_manual_candidate(self) -> None:
         engine = FakeImageOcrEngine("")

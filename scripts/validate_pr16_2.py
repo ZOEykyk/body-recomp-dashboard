@@ -40,6 +40,10 @@ def main() -> None:
         any(item.proto.label == "栄養ラベルを撮影" for item in app.get("camera_input")),
         "Label camera input renders",
     )
+    check(
+        any("栄養成分表示へ近づき" in str(item.value) for item in app.info),
+        "mobile camera guidance renders",
+    )
     input_method = next(item for item in app.radio if item.key == "label-ocr-input-method")
     app = input_method.set_value("画像をUpload").run()
     check(not app.exception, "switching label input method renders without exceptions")
