@@ -2,7 +2,7 @@
 
 ## Local Results
 
-Date: 2026-08-24
+Date: 2026-08-25
 
 - PASS: Tesseract 5.5.2 with `jpn+eng` starts locally.
 - PASS: synthetic Japanese nutrition label upload and preview.
@@ -14,7 +14,7 @@ Date: 2026-08-24
 - PASS: 4032×3024 input is not downscaled; low-resolution input is upscaled toward a 2200px long edge with a 3x cap.
 - PASS: camera and upload inputs render through one shared image-byte pipeline; identical bytes reuse the same SHA cache entry.
 - PASS: camera and upload selection render at 390px with no horizontal overflow in the local Streamlit app.
-- PASS: preprocessing approximately 34 ms; Candidate generation approximately 0.1 ms.
+- PASS: preprocessing approximately 29 ms; Candidate generation approximately 0.1 ms for the synthetic fixture.
 - PASS: blank image returns the manual Editor without a page exception.
 - PASS: normal Streamlit startup approximately 0.5 seconds in AppTest without OCR initialization.
 - PASS: JSON and Supabase adapters restore confirmed Calories/P/F/C.
@@ -31,9 +31,9 @@ Dedicated app: https://body-recomp-dashboard-pr16-2-test.streamlit.app/
 - PASS: the PR branch deployed and the Streamlit dashboard started without an application exception.
 - PASS: Smart Food Capture and the label-image upload section render in the hosted app.
 - PARTIAL: iPhone Camera → OCR → Candidate → Editor → Confirmation works, but small-label OCR is limited by Camera input quality.
-- PASS: metadata-only `ocr_runtime` panel deployed at source revision `807ab104bdaf`.
-- PENDING: hosted Tesseract execution and real-label accuracy checks.
-- PENDING: Supabase-backed Personal Food Master save/reboot checks because production secrets are not configured in the dedicated app.
+- PASS: metadata-only `ocr_runtime` panel and preprocessing v1.1 deployed from the latest PR head.
+- PASS: hosted Tesseract execution and the basic iPhone Camera flow run without a page exception.
+- PENDING: preprocessing v1.1 real-label accuracy comparison and Supabase-backed Personal Food Master save/reboot checks.
 
 Hosted runtime metadata before OCR:
 
@@ -45,8 +45,8 @@ Hosted runtime metadata before OCR:
 - pytesseract: 0.3.13
 - OCR runtime: not initialized
 - OCR cache: empty, 0 / 8 entries
-- Repository: `JsonFoodMasterRepository`, connected
-- Supabase: not configured in this dedicated app
+- Repository: `SupabaseFoodMasterRepository`, connected
+- Supabase: configured in the dedicated app
 - Fallback active: false
 
 Required before Draft removal:
