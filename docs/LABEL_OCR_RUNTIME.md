@@ -60,13 +60,28 @@ The diagnostic contract never includes executable paths, environment values, sec
 
 After image selection, the UI shows only width, height, byte size, format, EXIF presence, and EXIF orientation. After OCR it adds preprocessing dimensions/scale, per-variant field count/confidence/time, selected variant, and cache status. Other EXIF fields are intentionally excluded because they may contain private device or location data.
 
+### OCR → Parser Developer Debug
+
+Each completed OCR run exposes a collapsed, session-only Developer Debug panel with:
+
+- OCR token count and average/median confidence
+- Calories/Protein/Fat/Carbohydrates keyword detection
+- kcal and gram numeric-candidate counts
+- Parser-selected and rejected fields with reason codes
+- basis candidate and ambiguity flag
+- a diagnostic classification: `A` OCR recognition, `B` Parser mapping, or `C` handoff ambiguity
+
+The diagnostic JSON contains no image, hash, OCR text, food name, or nutrition value. During an Acceptance session, a second explicit checkbox may display raw OCR text in the current browser session. It is cleared after image replacement, manual fallback, failure, or Confirmation and is never copied into metrics, Repository objects, Canonical records, or logs.
+
+Provider selection remains unchanged while real-label evidence is collected. Predominantly `A` failures on clear high-resolution labels indicate an OCR-engine evaluation is warranted. Predominantly `B` failures should be addressed in Parser normalization/patterns. `C` failures should be resolved in basis/ambiguity and Editor handoff rules before changing OCR providers.
+
 ## Failure Behavior
 
 Corrupt images, missing Tesseract/language data, execution failure, timeout, unreadable labels, and missing nutrition fields remain page-local errors. The UI creates or retains an unconfirmed manual candidate so the user can continue in the shared Editor.
 
 ## Deployment
 
-Python dependencies are declared in `requirements.txt`, with Streamlit pinned to `1.59.0` for the camera resolution contract. The project development runtime is Python 3.12 as declared in `.python-version`; Streamlit 1.59 requires Python 3.10 or newer. Streamlit Community Cloud must use Python 3.12 in its deployment settings because an existing Cloud app's Python version is not changed by repository files. System packages are declared in `packages.txt` as Tesseract plus English and Japanese language data. Cloud Acceptance must remain pending until a deployed PR branch is exercised with 3-5 real Japanese labels, manual correction, Personal Food Master restore, reboot persistence, cache reuse, failure fallback, and Supabase privacy inspection.
+Python dependencies are declared in `requirements.txt`, with Streamlit pinned to `1.59.0` for the camera resolution contract. The project development runtime is Python 3.12 as declared in `.python-version`; Streamlit 1.59 requires Python 3.10 or newer. The existing Test App currently reports Python 3.14.7 and runs the pinned dependency set successfully; changing an existing Cloud app's Python version still requires deployment-setting recreation and is not part of this PR. System packages are declared in `packages.txt` as Tesseract plus English and Japanese language data. Cloud Acceptance must remain pending until a deployed PR branch is exercised with 3-5 real Japanese labels, manual correction, Personal Food Master restore, reboot persistence, cache reuse, failure fallback, and Supabase privacy inspection.
 
 ## Barcode Extension
 

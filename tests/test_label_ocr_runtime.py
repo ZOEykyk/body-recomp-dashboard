@@ -78,6 +78,7 @@ class FakeImageOcrEngine:
         return {
             "raw_text": self.text,
             "confidence": self.confidence,
+            "median_confidence": self.confidence,
             "token_count": len(self.text.split()),
             "elapsed_ms": 12.0,
         }
@@ -100,6 +101,7 @@ class SequencedImageOcrEngine:
         return {
             "raw_text": result["text"],
             "confidence": result["confidence"],
+            "median_confidence": result.get("median_confidence", result["confidence"]),
             "token_count": len(result["text"].split()),
             "elapsed_ms": result.get("elapsed_ms", 12.0),
         }
@@ -261,9 +263,14 @@ class LabelOcrProviderTests(unittest.TestCase):
         self.assertEqual((metrics["input_width"], metrics["input_height"]), (520, 260))
         self.assertGreater(metrics["preprocessed_width"], metrics["input_width"])
         self.assertEqual((metrics["source_variant_width"], metrics["source_variant_height"]), (520, 260))
+        self.assertEqual(metrics["average_confidence"], 0.88)
+        self.assertEqual(metrics["median_confidence"], 0.88)
+        self.assertEqual(metrics["pipeline_diagnostics"]["classification"]["code"], None)
+        self.assertEqual(metrics["pipeline_diagnostics"]["ocr"]["token_count"], metrics["token_count"])
         serialized = json.dumps(metrics, ensure_ascii=False)
         self.assertNotIn("栄養成分表示", serialized)
         self.assertNotIn("image_sha256", serialized)
+        self.assertNotIn("raw_text", serialized)
 
     def test_unreadable_image_returns_reviewable_manual_candidate(self) -> None:
         engine = FakeImageOcrEngine("")
@@ -347,7 +354,7 @@ class LabelOcrIntegrationTests(unittest.TestCase):
         self.assertNotIn("image_sha256", serialized)
 
     def test_runtime_modules_do_not_import_or_log_persistence_payloads(self) -> None:
-        for filename in ("image_preprocessing.py", "label_ocr_runtime.py"):
+        for filename in ("image_preprocessing.py", "label_ocr_runtime.py", "ocr_pipeline_diagnostics.py"):
             source = (ROOT / filename).read_text(encoding="utf-8")
             self.assertNotIn("food_master_repository", source)
             self.assertNotIn("supabase", source.lower())

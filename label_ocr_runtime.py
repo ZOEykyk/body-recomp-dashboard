@@ -14,6 +14,7 @@ from capture_provider import CaptureProvider, CaptureRequest
 from food_candidate_factory import food_candidate_from_observation
 from image_preprocessing import IMAGE_PREPROCESSING_VERSION, preprocess_label_image
 from nutrition_label_parser import parse_nutrition_label_text
+from ocr_pipeline_diagnostics import build_ocr_pipeline_diagnostics
 
 
 LABEL_OCR_PROVIDER_VERSION = "1.1"
@@ -106,6 +107,7 @@ class TesseractOcrEngine:
         return {
             "raw_text": raw_text,
             "confidence": round(statistics.mean(confidences) / 100, 4) if confidences else None,
+            "median_confidence": round(statistics.median(confidences) / 100, 4) if confidences else None,
             "token_count": sum(len(tokens) for tokens in lines.values()),
             "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
         }
@@ -349,6 +351,13 @@ class LabelOcrProvider(CaptureProvider):
         cache_lookup_ms = round((time.perf_counter() - lookup_started) * 1000, 3)
         parser_text, adapter_warnings = normalize_ocr_text_for_parser(extracted.get("raw_text") or "")
         parsed = parse_nutrition_label_text(parser_text)
+        pipeline_diagnostics = build_ocr_pipeline_diagnostics(
+            parser_text,
+            parsed,
+            token_count=extracted.get("token_count"),
+            average_confidence=extracted.get("confidence"),
+            median_confidence=extracted.get("median_confidence"),
+        )
         evidence = deepcopy(parsed["field_evidence"])
         for candidates in evidence.values():
             for candidate in candidates:
@@ -381,6 +390,9 @@ class LabelOcrProvider(CaptureProvider):
             "ocr_ms": extracted.get("elapsed_ms"),
             "candidate_fields": _known_nutrition_count(parsed),
             "token_count": extracted.get("token_count"),
+            "average_confidence": extracted.get("confidence"),
+            "median_confidence": extracted.get("median_confidence"),
+            "pipeline_diagnostics": pipeline_diagnostics,
             "variant": extracted.get("variant"),
             "input_width": extracted.get("input_width"),
             "input_height": extracted.get("input_height"),

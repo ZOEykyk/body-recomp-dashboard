@@ -51,7 +51,8 @@ Hosted runtime metadata before OCR:
 - Repository: `SupabaseFoodMasterRepository`, connected
 - Supabase: configured in the dedicated app
 - Fallback active: false
-- Python / Streamlit after the runtime-pin deployment: pending
+- Python: 3.14.7
+- Streamlit: 1.59.0
 
 Required before Draft removal:
 
@@ -79,6 +80,8 @@ Use an iPhone or equivalent smartphone against the dedicated PR16.2 Test App:
 9. Confirm Repository revision and food counts remain unchanged before Confirmation.
 10. Inspect persisted stores and confirm the camera image, processed image, and raw OCR text are absent.
 
+For an extraction failure, open `Developer Debug: OCR → Parser（sessionのみ）` and record only its metadata summary. Use the raw-text checkbox only while diagnosing the current image, do not include that text in screenshots or reports, and turn it off before continuing.
+
 Record device/browser, viewport width, camera permission result, OCR/cache timing, Candidate/Editor/Confirmation result, and any layout issue. The camera path must preserve the same Supabase save, immediate search, and reboot restoration checks used by uploaded images.
 
 ### Camera Quality Comparison
@@ -104,6 +107,22 @@ Before uploading a label, enable `Food Knowledge詳細を表示` and record only
 - Repository type, connection status, and fallback state
 
 Do not record or screenshot Secrets, image content, OCR text, food names, or nutrition values outside the per-image acceptance table.
+
+### Failure Classification
+
+For every incomplete result, record the generated classification and supporting metadata:
+
+| Case | Class | Tokens | Avg conf | Median conf | Keyword flags | kcal candidates | g candidates | Selected fields | Rejected fields/reasons | Basis | Ambiguous |
+| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | --- | --- |
+| Label 1 | pending |  |  |  |  |  |  |  |  |  |  |
+| Label 2 | pending |  |  |  |  |  |  |  |  |  |  |
+| Label 3 | pending |  |  |  |  |  |  |  |  |  |  |
+
+- `A / ocr_recognition`: expected nutrition keywords or numeric candidates are absent from OCR output.
+- `B / parser_mapping`: OCR signals exist, but the Parser does not select the corresponding field.
+- `C / handoff_ambiguity`: Parser evidence exists, but unknown/conflicting basis or ambiguous values require Editor review.
+
+Do not decide on an OCR provider change from one image. Continue Tesseract while collecting 3-5 comparable labels. If clear high-resolution labels predominantly fail as `A`, evaluate Google Cloud Vision or another provider in a separate PR. If failures are mostly `B` or `C`, improve Parser/handoff behavior before replacing the OCR engine.
 
 ## Real Label Results
 

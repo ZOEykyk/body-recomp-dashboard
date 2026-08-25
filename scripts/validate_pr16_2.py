@@ -32,6 +32,11 @@ def main() -> None:
         cwd=ROOT,
         check=True,
     )
+    subprocess.run(
+        [sys.executable, "-m", "unittest", "tests.test_ocr_pipeline_diagnostics"],
+        cwd=ROOT,
+        check=True,
+    )
     started = time.perf_counter()
     app = AppTest.from_file(str(ROOT / "app.py"), default_timeout=30).run()
     startup_ms = (time.perf_counter() - started) * 1000
