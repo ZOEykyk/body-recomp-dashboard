@@ -30,8 +30,8 @@ The pure parser recognizes Japanese energy, protein, fat, carbohydrates, kcal/kJ
 
 Content size evidence such as `内容量180g` is kept separate from `per_100g`; content amount never determines nutrition basis.
 
-## PR16.2 Handoff
+## PR16.2 Runtime
 
-PR16.2 should implement a real `CaptureProvider` that accepts uploaded image bytes, performs bounded preprocessing/OCR, and returns the same `CaptureObservation`. It should reuse `food_candidate_from_observation()` and `render_food_candidate_editor()` without importing Repository code into the OCR layer.
+PR16.2 implements `LabelOcrProvider`, which accepts uploaded image bytes, performs bounded Pillow preprocessing and Tesseract OCR, and returns the same `CaptureObservation`. It reuses `food_candidate_from_observation()` and `render_food_candidate_editor()` without importing Repository code into the OCR layer.
 
-Image upload, image persistence, Tesseract, Pillow preprocessing, OCR runtime caching, barcode scanning, external product lookup, schema migration, and database changes are intentionally outside PR16.1.
+Image persistence, barcode scanning, external product lookup, schema migration, and database changes remain out of scope. Runtime details are documented in [Label OCR Runtime](LABEL_OCR_RUNTIME.md).

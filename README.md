@@ -15,6 +15,7 @@ Project BodyOS は、日々の行動を同じ物差しで眺めつつ、通常�
 - [Food Knowledge Foundation](docs/FOOD_KNOWLEDGE.md)
 - [Smart Food Capture](docs/SMART_FOOD_CAPTURE.md)
 - [Capture Foundation](docs/CAPTURE_FOUNDATION.md)
+- [Label OCR Runtime](docs/LABEL_OCR_RUNTIME.md)
 - [Food Knowledge Supabase Operations](docs/SUPABASE_FOOD_KNOWLEDGE.md)
 - [Food Knowledge Production Runbook](docs/FOOD_KNOWLEDGE_RUNBOOK.md)
 - [PR12 Acceptance Test](docs/PR12_ACCEPTANCE_TEST.md)
@@ -77,6 +78,8 @@ v1の標準目標は、カロリー2,200kcal、タンパク質は体重があれ
 正確さが重要な日は、各食事のカロリー手入力欄、またはChatGPTログ内の明示的なカロリー値を使ってください。
 
 ## Smart Food Capture
+
+栄養ラベルのJPG/JPEG/PNGをアップロードし、Tesseract日本語OCRの候補を既存Editorで確認・修正できます。画像とOCR原文はruntime内だけで扱い、Canonical Record、records.csv、Food Master、Supabaseへ保存しません。OCR失敗時も手入力で続行できます。
 
 「今日の記録」では食品名からPersonal Food Master、利用頻度、最近の食品、Official、Genericの順で候補を確認できます。数量、単位、Calories、P/F/C、食事区分、摂取数量、備考を編集でき、SourceとConfidenceを確定・推定・不明で区別します。
 
