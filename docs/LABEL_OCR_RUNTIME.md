@@ -23,11 +23,11 @@ The primary mobile path is `st.file_uploader()` so iOS and Android can use their
 - Pillow applies EXIF orientation, RGB normalization, bounded resize, grayscale, autocontrast, and light contrast enhancement.
 - Images with a long edge below 2200px are upscaled toward 2200px, capped at 3x. Typical 4032px iPhone photos retain source resolution; only images above 4200px on the long edge are bounded for runtime safety.
 - The decoded source RGB stays at its original oriented resolution. RGB conversion is in-memory and does not re-encode or recompress JPEG data.
-- Enhanced grayscale and source RGB both run through OCR. Selection prioritizes complete Calories/P/F/C extraction, then OCR confidence and token count.
+- Enhanced grayscale and source RGB both run through OCR. Selection prioritizes complete Calories/P/F/C extraction, then OCR confidence and token count. Non-conflicting fields recognized by different variants are combined; conflicting values remain ambiguous and require Editor review.
 - Sharpening was tested but is not enabled in v1.1 because it reduced extraction in the regression fixture. The source variant remains available when contrast enhancement performs worse.
 - pytesseract uses Tesseract with `jpn+eng`, OEM 3, PSM 6, and a bounded timeout.
 - Pillow and pytesseract are lazy imports, so ordinary Food Search does not initialize OCR.
-- Common OCR character spacing is normalized only for Parser input. Raw extraction remains separate and candidates always require review.
+- Common OCR character spacing is normalized only for Parser input. The Parser also accepts reviewable Japanese-label evidence when Tesseract renders gram units as `q`/`9`, places `(g)` before a table value, or drops the gram unit at a clear field boundary. Raw extraction remains separate and candidates always require review.
 
 ## Cache
 
@@ -78,6 +78,8 @@ Provider selection remains unchanged while real-label evidence is collected. Pre
 ## Failure Behavior
 
 Corrupt images, missing Tesseract/language data, execution failure, timeout, unreadable labels, and missing nutrition fields remain page-local errors. The UI creates or retains an unconfirmed manual candidate so the user can continue in the shared Editor.
+
+Food Master persistence failures are also contained at the Smart Food Capture UI boundary. A successful atomic Supabase write is not reclassified as failed solely because its immediate verification read encounters a transient error; a genuine write failure leaves the candidate in the Editor and shows a retryable message without exposing backend details.
 
 ## Deployment
 

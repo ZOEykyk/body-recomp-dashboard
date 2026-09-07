@@ -17,7 +17,7 @@ from nutrition_label_parser import parse_nutrition_label_text
 from ocr_pipeline_diagnostics import build_ocr_pipeline_diagnostics
 
 
-LABEL_OCR_PROVIDER_VERSION = "1.1"
+LABEL_OCR_PROVIDER_VERSION = "1.2"
 DEFAULT_OCR_LANGUAGE = "jpn+eng"
 DEFAULT_OCR_TIMEOUT_SECONDS = 15
 OCR_CORE_NUTRITION_FIELDS = ("calories_kcal", "protein_g", "fat_g", "carbs_g")
@@ -296,8 +296,33 @@ class LabelOcrProvider(CaptureProvider):
         if not results:
             raise failures[0] if failures else LabelOcrError("OCR execution failed.")
 
+        total_ocr_ms = round(sum(float(result.get("elapsed_ms") or 0) for result in results), 3)
+        selection_candidates = list(results)
+        if len(results) > 1:
+            # The enhanced and source variants often recognize complementary
+            # label rows. Identical values remain deterministic; conflicting
+            # values are rejected by the parser as ambiguous.
+            combined_text = "\n".join(str(result.get("raw_text") or "") for result in results)
+            combined_parser_text, _ = normalize_ocr_text_for_parser(combined_text)
+            combined_parsed = parse_nutrition_label_text(combined_parser_text)
+            confidences = [float(result["confidence"]) for result in results if result.get("confidence") is not None]
+            medians = [float(result["median_confidence"]) for result in results if result.get("median_confidence") is not None]
+            selection_candidates.append(
+                {
+                    "raw_text": combined_text,
+                    "confidence": round(statistics.mean(confidences), 4) if confidences else None,
+                    "median_confidence": round(statistics.median(medians), 4) if medians else None,
+                    "token_count": sum(int(result.get("token_count") or 0) for result in results),
+                    "elapsed_ms": total_ocr_ms,
+                    "variant": "combined_variants",
+                    "width": max(int(result.get("width") or 0) for result in results),
+                    "height": max(int(result.get("height") or 0) for result in results),
+                    "field_count": _known_nutrition_count(combined_parsed),
+                }
+            )
+
         selected = max(
-            results,
+            selection_candidates,
             key=lambda result: (
                 int(result.get("field_count") or 0),
                 float(result.get("confidence") or 0),
@@ -317,7 +342,7 @@ class LabelOcrProvider(CaptureProvider):
         ]
         return {
             **selected,
-            "elapsed_ms": round(sum(float(result.get("elapsed_ms") or 0) for result in results), 3),
+            "elapsed_ms": total_ocr_ms,
             "selected_ocr_ms": selected.get("elapsed_ms"),
             "preprocessing_ms": preprocessed.elapsed_ms,
             "input_width": preprocessed.source_width,

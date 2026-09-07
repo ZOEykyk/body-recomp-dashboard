@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 import html
+import logging
 from typing import Any, Callable
 
 import streamlit as st
 
-from food_master_repository import FoodMasterRepository
+from food_master_repository import FoodMasterRepository, FoodMasterRepositoryError
 from food_knowledge_diagnostics import (
     confirmed_save_diagnostics,
     food_knowledge_user_key,
@@ -24,6 +25,9 @@ from smart_food_capture import (
     source_presentation,
     unknown_candidate,
 )
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 CAPTURE_STATE_KEY = "bodyos_smart_food_capture_items"
@@ -598,6 +602,9 @@ def _render_label_capture(
                 )
             except ValueError as exc:
                 st.error(str(exc))
+            except FoodMasterRepositoryError as exc:
+                LOGGER.warning("Food Master confirmation failed: %s", type(exc).__name__)
+                st.error("Food Masterへの保存に失敗しました。接続状態を確認して、もう一度お試しください。")
             else:
                 items.append(prepared)
                 st.session_state[CAPTURE_STATE_KEY] = items
@@ -690,6 +697,10 @@ def render_smart_food_capture(
                 )
             except ValueError as exc:
                 st.error(str(exc))
+                return deepcopy(items)
+            except FoodMasterRepositoryError as exc:
+                LOGGER.warning("Food Master confirmation failed: %s", type(exc).__name__)
+                st.error("Food Masterへの保存に失敗しました。接続状態を確認して、もう一度お試しください。")
                 return deepcopy(items)
             items.append(prepared)
             st.session_state[CAPTURE_STATE_KEY] = items

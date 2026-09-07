@@ -6,13 +6,37 @@ from typing import Any
 import unicodedata
 
 
-NUTRITION_LABEL_PARSER_VERSION = "1.0"
+NUTRITION_LABEL_PARSER_VERSION = "1.1"
 NUMBER_TOKEN = r"[-+]?[0-9OoIl|.,]+"
+FIELD_LABELS = {
+    "protein_g": r"(?:たんぱく質|タンパク質|蛋白質|protein|(?<![A-Za-z])P)",
+    "fat_g": r"(?:脂質|fat|(?<![A-Za-z])F)",
+    "carbs_g": r"(?:炭水化物|carbohydrates?|carbs?|(?<![A-Za-z])C)",
+    "sugar_candidate_g": r"(?:糖質)",
+}
+ALL_FIELD_LABELS = "(?:" + "|".join(FIELD_LABELS.values()) + ")"
+
+
+def _gram_field_pattern(label_pattern: str) -> str:
+    """Match common OCR table layouts while keeping the gram basis explicit."""
+    separator = r"[\s:：・·.．…_\-/／]{0,16}"
+    header_unit = r"(?:[（(]\s*(?P<header_unit>[gq9])\s*[）)])?"
+    # Tesseract occasionally drops the unit or recognizes `g` as `q`/`9`.
+    # A missing unit is accepted only at a line/field boundary and is always
+    # surfaced as reviewable evidence below.
+    trailing_unit_or_boundary = (
+        rf"(?:(?P<trailing_unit>[gq9])(?![A-Za-z])|"
+        rf"(?=\s*(?:$|\n|[;；/／|]|{ALL_FIELD_LABELS})))"
+    )
+    return (
+        rf"(?P<label>{label_pattern})\s*{header_unit}{separator}"
+        rf"(?P<value>{NUMBER_TOKEN})\s*{trailing_unit_or_boundary}"
+    )
+
+
 FIELD_PATTERNS = {
-    "protein_g": rf"(?:たんぱく質|タンパク質|蛋白質|protein|(?<![A-Za-z])P)\s*[:：]?\s*({NUMBER_TOKEN})\s*g",
-    "fat_g": rf"(?:脂質|fat|(?<![A-Za-z])F)\s*[:：]?\s*({NUMBER_TOKEN})\s*g",
-    "carbs_g": rf"(?:炭水化物|carbohydrates?|carbs?|(?<![A-Za-z])C)\s*[:：]?\s*({NUMBER_TOKEN})\s*g",
-    "sugar_candidate_g": rf"(?:糖質)\s*[:：]?\s*({NUMBER_TOKEN})\s*g",
+    field: _gram_field_pattern(label)
+    for field, label in FIELD_LABELS.items()
 }
 
 
@@ -195,11 +219,28 @@ def parse_nutrition_label_text(text: str) -> dict[str, Any]:
     for field, pattern in FIELD_PATTERNS.items():
         entries: list[dict[str, Any]] = []
         for match in re.finditer(pattern, normalized, flags=re.IGNORECASE):
-            raw_value = match.group(1)
+            raw_value = match.group("value")
             target_field = "carbs_g" if field == "sugar_candidate_g" else field
             value, number_warnings = _parse_number(raw_value, target_field)
             warnings.extend(number_warnings)
             entries.append(_evidence(match, raw_value, value, "g"))
+            detected_unit = match.group("trailing_unit") or match.group("header_unit")
+            if detected_unit in {"q", "9"}:
+                warnings.append(
+                    _warning(
+                        "ocr_unit_substitution",
+                        f"OCR unit {detected_unit!r} was treated as grams and requires confirmation.",
+                        target_field,
+                    )
+                )
+            elif detected_unit is None:
+                warnings.append(
+                    _warning(
+                        "unit_missing_candidate",
+                        "A labeled nutrition value without a recognized gram unit requires confirmation.",
+                        target_field,
+                    )
+                )
         if not entries:
             continue
         field_evidence[field] = entries

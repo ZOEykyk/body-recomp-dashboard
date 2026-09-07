@@ -58,5 +58,30 @@
     "text": "名称 ヨーグルト 原材料名 乳製品 保存方法 要冷蔵 販売者 BodyOS お問い合わせ 0120 栄養成分表示 1個あたり エネルギー 99kcal たんぱく質 3g 脂質 0.5g 炭水化物 13g 賞味期限 枠外記載",
     "basis": "per_item",
     "known_fields": 4
+  },
+  "hosted_ocr_g_as_nine": {
+    "text": "栄養成分表示 1袋あたり エネルギー 196kcal たんぱく質 4.2 9 脂質 7.1 9 炭水化物 28.6 9",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "hosted_ocr_g_as_q": {
+    "text": "栄養成分表示 1個あたり 熱量 154kcal タンパク質 3.8q 脂質 2.1q 炭水化物 29.4q",
+    "basis": "per_item",
+    "known_fields": 4
+  },
+  "hosted_table_header_units": {
+    "text": "栄養成分表示 100g当たり エネルギー 242kcal たんぱく質(g) 8.4 脂質(g) 9.2 炭水化物(g) 31.0",
+    "basis": "per_100g",
+    "known_fields": 4
+  },
+  "hosted_units_dropped": {
+    "text": "栄養成分表示 1包装あたり カロリー 118kcal たんぱく質 15.0\n脂質 0.0\n炭水化物 14.0",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "hosted_kanji_protein": {
+    "text": "栄養成分表示 100mlあたり 熱量 67kcal 蛋白質 3.4g 脂質 1.1g 炭水化物 10.8g 糖質 9.7g",
+    "basis": "per_100ml",
+    "known_fields": 4
   }
 }

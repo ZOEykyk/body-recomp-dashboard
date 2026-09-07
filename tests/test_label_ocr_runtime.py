@@ -253,6 +253,25 @@ class LabelOcrProviderTests(unittest.TestCase):
         self.assertEqual(provider.last_metrics["variant"], "source_rgb")
         self.assertEqual(provider.last_metrics["candidate_fields"], 4)
 
+    def test_complementary_variants_are_combined_without_guessing(self) -> None:
+        engine = SequencedImageOcrEngine(
+            [
+                {"text": "1個あたり 熱量 120kcal たんぱく質 3.2g", "confidence": 0.91},
+                {"text": "1個あたり 脂質 1.5g 炭水化物 20.1g", "confidence": 0.88},
+            ]
+        )
+        provider = LabelOcrProvider(engine, cache=OcrRuntimeCache())
+        observation = provider.capture(CaptureRequest(image_fixture()))
+        candidate = food_candidate_from_observation(observation)
+        self.assertEqual(provider.last_metrics["variant"], "combined_variants")
+        self.assertEqual(provider.last_metrics["candidate_fields"], 4)
+        self.assertEqual(
+            [candidate["nutrition"][field] for field in ("calories_kcal", "protein_g", "fat_g", "carbs_g")],
+            [120.0, 3.2, 1.5, 20.1],
+        )
+        self.assertFalse(candidate["confirmed"])
+        self.assertTrue(candidate["needs_review"])
+
     def test_metrics_compare_input_preprocessing_and_ocr_without_payload(self) -> None:
         provider = LabelOcrProvider(
             FakeImageOcrEngine(CASES["standard_vertical"]["text"]),

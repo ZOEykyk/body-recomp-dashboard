@@ -36,6 +36,9 @@ Dedicated app: https://body-recomp-dashboard-pr16-2-test.streamlit.app/
 - PARTIAL: iPhone Camera → OCR → Candidate → Editor → Confirmation works, but small-label OCR is limited by Camera input quality.
 - PASS: metadata-only `ocr_runtime` panel and preprocessing v1.1 deployed from the latest PR head.
 - PASS: hosted Tesseract execution and the basic iPhone Camera flow run without a page exception.
+- PASS (local runtime regression): five rendered Japanese label layouts produced Calories/P/F/C 4/4 with package, per-100g, per-100ml, content-size, and low-contrast cases. This does not replace the required 3-5 real-product Cloud Acceptance.
+- PASS: OCR post-processing regression covers `g` recognized as `q`/`9`, `(g)` table headers, missing unit at a field boundary, and complementary enhanced/source OCR variants.
+- PASS: Supabase atomic upsert remains successful when the immediate verification read fails transiently; genuine repository errors are contained by the Capture UI.
 - PENDING: preprocessing v1.1 real-label accuracy comparison and Supabase-backed Personal Food Master save/reboot checks.
 
 Hosted runtime metadata before OCR:

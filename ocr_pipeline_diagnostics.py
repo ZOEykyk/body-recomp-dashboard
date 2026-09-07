@@ -4,7 +4,7 @@ from copy import deepcopy
 import re
 from typing import Any
 
-from nutrition_label_parser import NUMBER_TOKEN
+from nutrition_label_parser import FIELD_PATTERNS, NUMBER_TOKEN
 
 
 OCR_PIPELINE_DIAGNOSTICS_VERSION = "1.0"
@@ -34,9 +34,9 @@ def _keyword_detection(text: str) -> dict[str, bool]:
 def _field_value_candidate_detection(text: str) -> dict[str, bool]:
     patterns = {
         "calories_kcal": rf"{FIELD_KEYWORDS['calories_kcal']}[^\n]{{0,32}}?{NUMBER_TOKEN}\s*(?:kcal|kJ)",
-        "protein_g": rf"{FIELD_KEYWORDS['protein_g']}[^\n]{{0,32}}?{NUMBER_TOKEN}\s*g",
-        "fat_g": rf"{FIELD_KEYWORDS['fat_g']}[^\n]{{0,32}}?{NUMBER_TOKEN}\s*g",
-        "carbs_g": rf"{FIELD_KEYWORDS['carbs_g']}[^\n]{{0,32}}?{NUMBER_TOKEN}\s*g",
+        "protein_g": rf"(?:{FIELD_PATTERNS['protein_g']}|{FIELD_KEYWORDS['protein_g']}[^\n]{{0,32}}?{NUMBER_TOKEN}\s*[gq9])",
+        "fat_g": rf"(?:{FIELD_PATTERNS['fat_g']}|{FIELD_KEYWORDS['fat_g']}[^\n]{{0,32}}?{NUMBER_TOKEN}\s*[gq9])",
+        "carbs_g": rf"(?:{FIELD_PATTERNS['carbs_g']}|{FIELD_KEYWORDS['carbs_g']}[^\n]{{0,32}}?{NUMBER_TOKEN}\s*[gq9])",
     }
     return {
         field: bool(re.search(pattern, text, flags=re.IGNORECASE))

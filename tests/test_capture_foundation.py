@@ -64,6 +64,34 @@ class NutritionLabelParserTests(unittest.TestCase):
         self.assertEqual(result["nutrition"]["fat_g"], 0.5)
         self.assertIn("ocr_numeric_substitution", {warning["code"] for warning in result["warnings"]})
 
+    def test_ocr_gram_unit_confusions_remain_reviewable_candidates(self) -> None:
+        result = parse_nutrition_label_text(
+            "1袋あたり たんぱく質 4.2 9 脂質 7.1q 炭水化物 28.6 9"
+        )
+        self.assertEqual(
+            [result["nutrition"][field] for field in ("protein_g", "fat_g", "carbs_g")],
+            [4.2, 7.1, 28.6],
+        )
+        codes = [warning["code"] for warning in result["warnings"]]
+        self.assertEqual(codes.count("ocr_unit_substitution"), 3)
+
+    def test_table_header_units_and_dropped_units_are_extracted_for_editor_review(self) -> None:
+        header = parse_nutrition_label_text(
+            "100gあたり たんぱく質(g) 8.4 脂質(g) 9.2 炭水化物(g) 31.0"
+        )
+        dropped = parse_nutrition_label_text(
+            "1包装あたり たんぱく質 15.0\n脂質 0.0\n炭水化物 14.0"
+        )
+        self.assertEqual(
+            [header["nutrition"][field] for field in ("protein_g", "fat_g", "carbs_g")],
+            [8.4, 9.2, 31.0],
+        )
+        self.assertEqual(
+            [dropped["nutrition"][field] for field in ("protein_g", "fat_g", "carbs_g")],
+            [15.0, 0.0, 14.0],
+        )
+        self.assertIn("unit_missing_candidate", {warning["code"] for warning in dropped["warnings"]})
+
     def test_malformed_decimal_is_not_guessed(self) -> None:
         result = self.parse("malformed_decimal")
         self.assertIsNone(result["nutrition"]["calories_kcal"])
