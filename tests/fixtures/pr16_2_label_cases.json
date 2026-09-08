@@ -42,7 +42,7 @@
   "sugar_listed": {
     "text": "1個あたり 熱量 80kcal たんぱく質 1g 脂質 0g 糖質 18g",
     "basis": "per_item",
-    "known_fields": 3
+    "known_fields": 4
   },
   "low_contrast": {
     "text": "100gあたり 熱量 150kcal たんぱく質 5g 脂質 2g 炭水化物 27g",
@@ -82,6 +82,26 @@
   "hosted_kanji_protein": {
     "text": "栄養成分表示 100mlあたり 熱量 67kcal 蛋白質 3.4g 脂質 1.1g 炭水化物 10.8g 糖質 9.7g",
     "basis": "per_100ml",
+    "known_fields": 4
+  },
+  "hosted_japanese_label_variants": {
+    "text": "栄養成分表示 1袋あたり エ ネ ル ギ ー 196kcal 蛋 白 質 4.2g 脂・肪 7.1g 炭 水 化 物 28.6g",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "hosted_english_label_variants": {
+    "text": "Nutrition Facts 1包装あたり Calories 154kcal protein 3.8g fat 2.1g carbohydrates 29.4g",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "hosted_english_abbreviations": {
+    "text": "1個あたり kcal 118kcal P 15.0g F 0.0g C 14.0g",
+    "basis": "per_item",
+    "known_fields": 4
+  },
+  "hosted_sugar_fallback": {
+    "text": "栄養成分表示 1個あたり 熱量 99kcal タンパク質 3g 脂質 0.5g 糖質 13g",
+    "basis": "per_item",
     "known_fields": 4
   }
 }

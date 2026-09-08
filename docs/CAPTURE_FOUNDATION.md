@@ -26,7 +26,7 @@ CaptureProvider -> CaptureObservation -> FoodCandidateFactory
 
 ## Nutrition Label Parser
 
-The pure parser recognizes Japanese energy, protein, fat, carbohydrates, kcal/kJ, and existing nutrition bases. kcal takes priority over kJ. kJ-only energy is a derived candidate with a warning. 糖質 is preserved as evidence but is not assigned to `carbs_g`. Unknown basis, malformed values, conflicting values, and multiple blocks remain reviewable.
+The pure parser recognizes Japanese and English energy, protein, fat, carbohydrate labels, kcal/kJ, and existing nutrition bases. It normalizes common full-width, spacing, punctuation, and gram-unit OCR damage. kcal takes priority over kJ, and kJ-only energy is a derived candidate with a warning. An explicit carbohydrate value always wins; only when it is absent may 糖質 populate `carbs_g` as a warning-bearing Editor fallback. Ambiguous carbohydrate evidence is never replaced by sugar. Unknown basis, malformed values, conflicting values, and multiple blocks remain reviewable.
 
 Content size evidence such as `内容量180g` is kept separate from `per_100g`; content amount never determines nutrition basis.
 

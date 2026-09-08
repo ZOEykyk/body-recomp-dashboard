@@ -81,6 +81,21 @@ class OcrPipelineDiagnosticsTests(unittest.TestCase):
         self.assertTrue(result["recognition"]["keyword_detected"]["calories"])
         self.assertFalse(result["recognition"]["keyword_detected"]["fat"])
 
+    def test_variant_and_lightly_damaged_labels_share_parser_vocabulary(self) -> None:
+        result = diagnose(
+            "1包装あたり calories 120kcal "
+            "蛋 白 質 3.2q 脂・肪 1.5g carbo-hydrates 20.1g"
+        )
+        self.assertEqual(
+            result["recognition"]["keyword_detected"],
+            {"calories": True, "protein": True, "fat": True, "carbs": True},
+        )
+        self.assertEqual(
+            result["parser"]["selected_fields"],
+            ["calories_kcal", "protein_g", "fat_g", "carbs_g", "basis"],
+        )
+        self.assertIsNone(result["classification"]["code"])
+
     def test_class_b_when_keywords_are_visible_but_parser_cannot_map_values(self) -> None:
         result = diagnose("1個あたり たんぱく質 約 2g")
         self.assertEqual(result["classification"]["code"], "B")

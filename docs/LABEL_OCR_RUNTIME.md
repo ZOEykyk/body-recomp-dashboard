@@ -27,7 +27,8 @@ The primary mobile path is `st.file_uploader()` so iOS and Android can use their
 - Sharpening was tested but is not enabled in v1.1 because it reduced extraction in the regression fixture. The source variant remains available when contrast enhancement performs worse.
 - pytesseract uses Tesseract with `jpn+eng`, OEM 3, PSM 6, and a bounded timeout.
 - Pillow and pytesseract are lazy imports, so ordinary Food Search does not initialize OCR.
-- Common OCR character spacing is normalized only for Parser input. The Parser also accepts reviewable Japanese-label evidence when Tesseract renders gram units as `q`/`9`, places `(g)` before a table value, or drops the gram unit at a clear field boundary. Raw extraction remains separate and candidates always require review.
+- Common OCR character spacing is normalized only for Parser input. The Parser treats `たんぱく質 / タンパク質 / 蛋白質 / protein`, `脂質 / 脂肪 / fat`, `炭水化物 / carbohydrate / carbs`, and Japanese/English energy labels as shared field identities. NFKC normalization plus bounded intra-label separators cover full-width text and light spacing or punctuation damage.
+- Gram units recognized as `q`/`9`, `(g)` table headers, and missing units at a clear field boundary are retained as warning-bearing Editor candidates. Explicit 炭水化物 wins over 糖質; 糖質 is used as a review-required `carbs_g` fallback only when no carbohydrate evidence exists. Raw extraction remains separate and candidates always require review.
 
 ## Cache
 

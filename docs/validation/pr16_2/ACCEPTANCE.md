@@ -38,6 +38,7 @@ Dedicated app: https://body-recomp-dashboard-pr16-2-test.streamlit.app/
 - PASS: hosted Tesseract execution and the basic iPhone Camera flow run without a page exception.
 - PASS (local runtime regression): five rendered Japanese label layouts produced Calories/P/F/C 4/4 with package, per-100g, per-100ml, content-size, and low-contrast cases. This does not replace the required 3-5 real-product Cloud Acceptance.
 - PASS: OCR post-processing regression covers `g` recognized as `q`/`9`, `(g)` table headers, missing unit at a field boundary, and complementary enhanced/source OCR variants.
+- PASS: Parser regression covers Japanese/English P/F/C/kcal aliases, full-width forms, intra-label spaces/symbols, `脂肪`, and review-required 糖質 fallback without overriding explicit/ambiguous 炭水化物 evidence.
 - PASS: Supabase atomic upsert remains successful when the immediate verification read fails transiently; genuine repository errors are contained by the Capture UI.
 - PENDING: preprocessing v1.1 real-label accuracy comparison and Supabase-backed Personal Food Master save/reboot checks.
 
@@ -67,6 +68,8 @@ Required before Draft removal:
 6. Confirm an unreadable image reaches manual fallback.
 7. Confirm a repeated image reports a cache hit.
 8. Inspect Supabase Food Knowledge rows and confirm no image, OCR text, token, or bounding-box payload exists.
+9. Include real labels spanning the supported notation variants where available: `たんぱく質 / タンパク質 / 蛋白質 / protein`, `脂質 / 脂肪 / fat`, `炭水化物 / carbohydrate / carbs`, and `エネルギー / 熱量 / kcal / calories`.
+10. Include one label with both 炭水化物 and 糖質 and one sugar-only label if available; confirm explicit 炭水化物 wins and sugar-only remains an Editor-reviewed fallback.
 
 ## Mobile Camera Acceptance
 
@@ -138,6 +141,8 @@ Use at least three and preferably five Japanese commercial-product labels.
 | Label 3 | pending |  |  |  |  |  |  |  |  | pending |
 | Label 4 | optional |  |  |  |  |  |  |  |  | pending |
 | Label 5 | optional |  |  |  |  |  |  |  |  | pending |
+
+For each case, also record the observed label spellings for P/F/C/kcal and whether OCR introduced spacing, full-width, punctuation, or gram-unit damage. Do not include the product name or raw OCR transcript in the persisted acceptance report.
 
 For each successful case, confirm Candidate generation, shared Editor correction, explicit Confirmation, and Daily Food totals. For one remembered food, confirm immediate same-name Personal Food Master restore, reboot the app, then confirm the same Calories/P/F/C restore again.
 

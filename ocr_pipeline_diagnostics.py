@@ -4,16 +4,16 @@ from copy import deepcopy
 import re
 from typing import Any
 
-from nutrition_label_parser import FIELD_PATTERNS, NUMBER_TOKEN
+from nutrition_label_parser import ENERGY_LABEL_PATTERN, FIELD_LABELS, FIELD_PATTERNS, NUMBER_TOKEN
 
 
 OCR_PIPELINE_DIAGNOSTICS_VERSION = "1.0"
 CORE_FIELDS = ("calories_kcal", "protein_g", "fat_g", "carbs_g")
 FIELD_KEYWORDS = {
-    "calories_kcal": r"(?:熱量|エネルギー|カロリー|(?<![A-Za-z])(?:energy|calories?|kcal|kJ)(?![A-Za-z]))",
-    "protein_g": r"(?:たんぱく質|タンパク質|蛋白質|(?<![A-Za-z])protein(?![A-Za-z])|(?<![A-Za-z])P(?=\s*[:：0-9]))",
-    "fat_g": r"(?:脂質|(?<![A-Za-z])fat(?![A-Za-z])|(?<![A-Za-z])F(?=\s*[:：0-9]))",
-    "carbs_g": r"(?:炭水化物|(?<![A-Za-z])(?:carbohydrates?|carbs?)(?![A-Za-z])|(?<![A-Za-z])C(?=\s*[:：0-9]))",
+    "calories_kcal": rf"(?:{ENERGY_LABEL_PATTERN}|(?<![A-Za-z])(?:kcal|kJ)(?![A-Za-z]))",
+    "protein_g": FIELD_LABELS["protein_g"],
+    "fat_g": FIELD_LABELS["fat_g"],
+    "carbs_g": FIELD_LABELS["carbs_g"],
 }
 AMBIGUOUS_WARNING_CODES = {
     "basis_conflict",
