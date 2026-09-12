@@ -64,6 +64,66 @@ class NutritionLabelParserTests(unittest.TestCase):
         self.assertEqual(result["nutrition"]["fat_g"], 0.5)
         self.assertIn("ocr_numeric_substitution", {warning["code"] for warning in result["warnings"]})
 
+    def test_ocr_gram_unit_confusions_remain_reviewable_candidates(self) -> None:
+        result = parse_nutrition_label_text(
+            "1袋あたり たんぱく質 4.2 9 脂質 7.1q 炭水化物 28.6 9"
+        )
+        self.assertEqual(
+            [result["nutrition"][field] for field in ("protein_g", "fat_g", "carbs_g")],
+            [4.2, 7.1, 28.6],
+        )
+        codes = [warning["code"] for warning in result["warnings"]]
+        self.assertEqual(codes.count("ocr_unit_substitution"), 3)
+
+    def test_table_header_units_and_dropped_units_are_extracted_for_editor_review(self) -> None:
+        header = parse_nutrition_label_text(
+            "100gあたり たんぱく質(g) 8.4 脂質(g) 9.2 炭水化物(g) 31.0"
+        )
+        dropped = parse_nutrition_label_text(
+            "1包装あたり たんぱく質 15.0\n脂質 0.0\n炭水化物 14.0"
+        )
+        self.assertEqual(
+            [header["nutrition"][field] for field in ("protein_g", "fat_g", "carbs_g")],
+            [8.4, 9.2, 31.0],
+        )
+        self.assertEqual(
+            [dropped["nutrition"][field] for field in ("protein_g", "fat_g", "carbs_g")],
+            [15.0, 0.0, 14.0],
+        )
+        self.assertIn("unit_missing_candidate", {warning["code"] for warning in dropped["warnings"]})
+
+    def test_nutrition_label_name_variants_are_normalized(self) -> None:
+        cases = (
+            ("たんぱく質", "脂質", "炭水化物", "エネルギー"),
+            ("タンパク質", "脂肪", "carbohydrate", "熱量"),
+            ("蛋白質", "fat", "carbs", "calories"),
+            ("protein", "脂質", "carbohydrates", "カロリー"),
+        )
+        for protein, fat, carbs, calories in cases:
+            with self.subTest(protein=protein, fat=fat, carbs=carbs, calories=calories):
+                result = parse_nutrition_label_text(
+                    f"1包装あたり {calories}: 120 kcal {protein}: 3.2g {fat}: 1.5g {carbs}: 20.1g"
+                )
+                self.assertEqual(
+                    [result["nutrition"][field] for field in ("calories_kcal", "protein_g", "fat_g", "carbs_g")],
+                    [120.0, 3.2, 1.5, 20.1],
+                )
+
+    def test_fullwidth_spacing_symbols_and_ocr_gram_damage_are_reviewable(self) -> None:
+        result = parse_nutrition_label_text(
+            "１包装当たり エ ネ ル ギ ー＝１２０ｋｃａｌ "
+            "たん・ぱく 質：３．２ｑ 脂・肪＝１．５ｑ 炭 水 化 物：２０．１ｇ"
+        )
+        self.assertEqual(
+            [result["nutrition"][field] for field in ("calories_kcal", "protein_g", "fat_g", "carbs_g")],
+            [120.0, 3.2, 1.5, 20.1],
+        )
+        self.assertEqual(result["nutrition"]["basis"], "per_package")
+        self.assertGreaterEqual(
+            sum(warning["code"] == "ocr_unit_substitution" for warning in result["warnings"]),
+            2,
+        )
+
     def test_malformed_decimal_is_not_guessed(self) -> None:
         result = self.parse("malformed_decimal")
         self.assertIsNone(result["nutrition"]["calories_kcal"])
@@ -135,11 +195,27 @@ class NutritionLabelParserTests(unittest.TestCase):
         self.assertEqual(result["nutrition"]["calories_kcal"], 100.0)
         self.assertIn("kj_converted", {warning["code"] for warning in result["warnings"]})
 
-    def test_sugar_is_not_carbohydrates(self) -> None:
+    def test_sugar_only_is_a_review_required_carbohydrate_fallback(self) -> None:
         result = self.parse("sugar_only")
-        self.assertIsNone(result["nutrition"]["carbs_g"])
+        self.assertEqual(result["nutrition"]["sugar_g"], 18.0)
+        self.assertEqual(result["nutrition"]["carbs_g"], 18.0)
         self.assertIn("sugar_candidate_g", result["field_evidence"])
-        self.assertIn("sugar_not_carbs", {warning["code"] for warning in result["warnings"]})
+        self.assertIn("sugar_used_as_carbs_fallback", {warning["code"] for warning in result["warnings"]})
+
+    def test_explicit_carbohydrates_are_preferred_over_sugar(self) -> None:
+        result = parse_nutrition_label_text(
+            "1個あたり 熱量 120kcal たんぱく質 3g 脂質 1g 炭水化物 20g 糖質 17g"
+        )
+        self.assertEqual(result["nutrition"]["carbs_g"], 20.0)
+        self.assertEqual(result["nutrition"]["sugar_g"], 17.0)
+        self.assertIn("carbs_preferred_over_sugar", {warning["code"] for warning in result["warnings"]})
+
+    def test_ambiguous_carbohydrates_are_not_replaced_by_sugar(self) -> None:
+        result = parse_nutrition_label_text(
+            "1個あたり 炭水化物 20g 炭水化物 22g 糖質 17g"
+        )
+        self.assertIsNone(result["nutrition"]["carbs_g"])
+        self.assertEqual(result["nutrition"]["sugar_g"], 17.0)
 
     def test_multiple_blocks_are_ambiguous(self) -> None:
         result = self.parse("multiple_blocks")
