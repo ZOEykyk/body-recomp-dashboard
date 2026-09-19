@@ -34,7 +34,7 @@
 
 ## Milestone M3 Platform
 
-- PR16.2 Label OCR Runtime
+- PR16.2 Label OCR Runtime (Draft; Cloud Acceptance pending)
 - Future Barcode Capture / Product Lookup
 - API separation
 - Database storage
