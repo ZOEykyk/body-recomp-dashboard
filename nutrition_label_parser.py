@@ -6,13 +6,58 @@ from typing import Any
 import unicodedata
 
 
-NUTRITION_LABEL_PARSER_VERSION = "1.0"
+NUTRITION_LABEL_PARSER_VERSION = "1.3"
 NUMBER_TOKEN = r"[-+]?[0-9OoIl|.,]+"
+GLUED_GRAM_UNIT = re.compile(r"\d+\.\d[0-9]")
+LABEL_GAP = r"[\s:：=＝・･·.．,_＿\-‐‑–—/／|｜]*"
+
+
+def _flexible_label(value: str) -> str:
+    """Allow light OCR spacing/punctuation damage without fuzzy identity guesses."""
+    body = LABEL_GAP.join(re.escape(character) for character in value)
+    if value.isascii():
+        return rf"(?<![A-Za-z]){body}(?![A-Za-z])"
+    return body
+
+
+def _label_aliases(*values: str) -> str:
+    return "(?:" + "|".join(_flexible_label(value) for value in values) + ")"
+
+
+ENERGY_LABEL_PATTERN = _label_aliases("エネルギー", "熱量", "カロリー", "energy", "calorie", "calories")
+# Single-letter P/F/C shorthands are matched case-sensitively: lowercase `p`/`f`/`c`
+# fragments are common in noisy OCR of package art and must not become evidence.
+# The trailing damaged forms (`ぱく質`, `水化物`, ...) are Tesseract misreads of the
+# leading kana/kanji observed on real-label-like photos; they stay review-required.
+FIELD_LABELS = {
+    "protein_g": rf"(?:{_label_aliases('たんぱく質', 'タンパク質', '蛋白質', 'protein', 'ぱく質', 'ばく質', 'パク質', 'バク質')}|(?<![A-Za-z])(?-i:P)(?![A-Za-z]))",
+    "fat_g": rf"(?:{_label_aliases('脂質', '脂肪', 'fat')}|(?<![A-Za-z])(?-i:F)(?![A-Za-z]))",
+    "carbs_g": rf"(?:{_label_aliases('炭水化物', 'carbohydrate', 'carbohydrates', 'carb', 'carbs', '水化物', '炭水化')}|(?<![A-Za-z])(?-i:C)(?![A-Za-z]))",
+    "sugar_candidate_g": _label_aliases("糖質"),
+}
+ALL_FIELD_LABELS = "(?:" + "|".join(FIELD_LABELS.values()) + ")"
+
+
+def _gram_field_pattern(label_pattern: str) -> str:
+    """Match common OCR table layouts while keeping the gram basis explicit."""
+    separator = r"[\s:：=＝・･·.．…,_＿\-‐‑–—/／|｜]{0,16}"
+    header_unit = r"(?:[（(]\s*(?P<header_unit>[gq9])\s*[）)])?"
+    # Tesseract occasionally drops the unit or recognizes `g` as `q`/`9`.
+    # A missing unit is accepted only at a line/field boundary and is always
+    # surfaced as reviewable evidence below.
+    trailing_unit_or_boundary = (
+        rf"(?:(?P<trailing_unit>[gq9])(?![A-Za-z])|"
+        rf"(?=\s*(?:$|\n|[;；/／|]|{ALL_FIELD_LABELS})))"
+    )
+    return (
+        rf"(?P<label>{label_pattern})\s*{header_unit}{separator}"
+        rf"(?P<value>{NUMBER_TOKEN})\s*{trailing_unit_or_boundary}"
+    )
+
+
 FIELD_PATTERNS = {
-    "protein_g": rf"(?:たんぱく質|タンパク質|蛋白質|protein|(?<![A-Za-z])P)\s*[:：]?\s*({NUMBER_TOKEN})\s*g",
-    "fat_g": rf"(?:脂質|fat|(?<![A-Za-z])F)\s*[:：]?\s*({NUMBER_TOKEN})\s*g",
-    "carbs_g": rf"(?:炭水化物|carbohydrates?|carbs?|(?<![A-Za-z])C)\s*[:：]?\s*({NUMBER_TOKEN})\s*g",
-    "sugar_candidate_g": rf"(?:糖質)\s*[:：]?\s*({NUMBER_TOKEN})\s*g",
+    field: _gram_field_pattern(label)
+    for field, label in FIELD_LABELS.items()
 }
 
 
@@ -137,7 +182,7 @@ def parse_nutrition_label_text(text: str) -> dict[str, Any]:
     warnings.extend(basis_warnings)
 
     energy_pattern = (
-        rf"(?:(?:熱量|エネルギー|カロリー)\s*[:：]?\s*)?"
+        rf"(?:{ENERGY_LABEL_PATTERN}\s*[:：=＝]?\s*)?"
         rf"({NUMBER_TOKEN})\s*(kcal|kJ)"
     )
     energy_entries: list[dict[str, Any]] = []
@@ -195,20 +240,74 @@ def parse_nutrition_label_text(text: str) -> dict[str, Any]:
     for field, pattern in FIELD_PATTERNS.items():
         entries: list[dict[str, Any]] = []
         for match in re.finditer(pattern, normalized, flags=re.IGNORECASE):
-            raw_value = match.group(1)
+            raw_value = match.group("value")
             target_field = "carbs_g" if field == "sugar_candidate_g" else field
-            value, number_warnings = _parse_number(raw_value, target_field)
+            detected_unit = match.group("trailing_unit") or match.group("header_unit")
+            number_text = raw_value
+            if detected_unit is None and GLUED_GRAM_UNIT.fullmatch(unicodedata.normalize("NFKC", raw_value)):
+                # `4.5g` is often read as `4.59`/`4.58`: the gram unit became a digit
+                # glued to a one-decimal value. Labels print P/F/C with at most one
+                # decimal, so drop the glued digit and require review.
+                number_text = unicodedata.normalize("NFKC", raw_value)[:-1]
+                detected_unit = "glued"
+                warnings.append(
+                    _warning(
+                        "ocr_glued_unit_digit",
+                        f"A digit glued after {number_text!r} was treated as an OCR-damaged gram unit and requires confirmation.",
+                        target_field,
+                    )
+                )
+            value, number_warnings = _parse_number(number_text, target_field)
             warnings.extend(number_warnings)
             entries.append(_evidence(match, raw_value, value, "g"))
+            if detected_unit in {"q", "9"}:
+                warnings.append(
+                    _warning(
+                        "ocr_unit_substitution",
+                        f"OCR unit {detected_unit!r} was treated as grams and requires confirmation.",
+                        target_field,
+                    )
+                )
+            elif detected_unit is None:
+                warnings.append(
+                    _warning(
+                        "unit_missing_candidate",
+                        "A labeled nutrition value without a recognized gram unit requires confirmation.",
+                        target_field,
+                    )
+                )
         if not entries:
             continue
         field_evidence[field] = entries
-        if field == "sugar_candidate_g":
-            warnings.append(_warning("sugar_not_carbs", "糖質 alone was not mapped to carbohydrates.", "carbs_g"))
-            continue
-        selected, selection_warnings = _select_unique_field(field, entries)
-        nutrition[field] = selected
+        selection_field = "sugar_g" if field == "sugar_candidate_g" else field
+        selected, selection_warnings = _select_unique_field(selection_field, entries)
+        nutrition[selection_field] = selected
         warnings.extend(selection_warnings)
+
+    sugar_value = nutrition.get("sugar_g")
+    primary_carbs_evidence = field_evidence.get("carbs_g") or []
+    if sugar_value is not None and not primary_carbs_evidence:
+        nutrition["carbs_g"] = sugar_value
+        fallback_evidence = deepcopy(field_evidence.get("sugar_candidate_g") or [])
+        for candidate in fallback_evidence:
+            candidate["status"] = "derived"
+            candidate["source_field"] = "sugar_g"
+        field_evidence["carbs_g"] = fallback_evidence
+        warnings.append(
+            _warning(
+                "sugar_used_as_carbs_fallback",
+                "糖質 was used only as a review-required carbohydrate fallback because 炭水化物 was absent.",
+                "carbs_g",
+            )
+        )
+    elif sugar_value is not None and nutrition.get("carbs_g") is not None:
+        warnings.append(
+            _warning(
+                "carbs_preferred_over_sugar",
+                "The explicit carbohydrate value was preferred over the separately listed sugar value.",
+                "carbs_g",
+            )
+        )
 
     size_pattern = rf"内容量\s*[:：]?\s*({NUMBER_TOKEN})\s*(g|ml)"
     size_entries: list[dict[str, Any]] = []
@@ -257,4 +356,11 @@ def parse_nutrition_label_text(text: str) -> dict[str, Any]:
     }
 
 
-__all__ = ["NUTRITION_LABEL_PARSER_VERSION", "parse_nutrition_label_text"]
+__all__ = [
+    "ENERGY_LABEL_PATTERN",
+    "FIELD_LABELS",
+    "FIELD_PATTERNS",
+    "NUTRITION_LABEL_PARSER_VERSION",
+    "NUMBER_TOKEN",
+    "parse_nutrition_label_text",
+]
