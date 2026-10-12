@@ -17,7 +17,7 @@ from nutrition_label_parser import parse_nutrition_label_text
 from ocr_pipeline_diagnostics import build_ocr_pipeline_diagnostics
 
 
-LABEL_OCR_PROVIDER_VERSION = "1.2"
+LABEL_OCR_PROVIDER_VERSION = "1.3"
 DEFAULT_OCR_LANGUAGE = "jpn+eng"
 DEFAULT_OCR_TIMEOUT_SECONDS = 15
 OCR_CORE_NUTRITION_FIELDS = ("calories_kcal", "protein_g", "fat_g", "carbs_g")
@@ -190,6 +190,19 @@ def _known_nutrition_count(parsed: dict[str, Any]) -> int:
     return sum(nutrition.get(field) is not None for field in OCR_CORE_NUTRITION_FIELDS)
 
 
+def _combined_field_count(results: list[dict[str, Any]]) -> int:
+    combined_text = "\n".join(str(result.get("raw_text") or "") for result in results)
+    parser_text, _ = normalize_ocr_text_for_parser(combined_text)
+    return _known_nutrition_count(parse_nutrition_label_text(parser_text))
+
+
+def _best_field_count(results: list[dict[str, Any]]) -> int:
+    best = max(int(result.get("field_count") or 0) for result in results)
+    if len(results) > 1:
+        best = max(best, _combined_field_count(results))
+    return best
+
+
 def normalize_ocr_text_for_parser(text: str) -> tuple[str, list[dict[str, Any]]]:
     """Normalize common OCR spacing/spelling while preserving raw text separately."""
     normalized = str(text or "")
@@ -256,23 +269,39 @@ class LabelOcrProvider(CaptureProvider):
 
     def _extract(self, image_bytes: bytes) -> dict[str, Any]:
         preprocessed = preprocess_label_image(image_bytes)
+        # Japanese nutrition panels are boxed tables; the ruled-line-removed binary
+        # variant is the primary signal. The full-resolution source is the slowest
+        # pass and runs only when the first variants leave core fields missing.
         variant_specs = (
+            (
+                "ruled_lines_removed",
+                preprocessed.line_removed,
+                preprocessed.width,
+                preprocessed.height,
+                False,
+            ),
             (
                 "enhanced_grayscale",
                 preprocessed.primary,
                 preprocessed.width,
                 preprocessed.height,
+                False,
             ),
             (
                 "source_rgb",
                 preprocessed.fallback,
                 preprocessed.fallback_width,
                 preprocessed.fallback_height,
+                True,
             ),
         )
         results: list[dict[str, Any]] = []
         failures: list[LabelOcrError] = []
-        for variant_name, image, width, height in variant_specs:
+        skipped_variants: list[str] = []
+        for variant_name, image, width, height, fallback_only in variant_specs:
+            if fallback_only and results and _best_field_count(results) >= len(OCR_CORE_NUTRITION_FIELDS):
+                skipped_variants.append(variant_name)
+                continue
             try:
                 recognized = self._engine.recognize(
                     image,
@@ -299,12 +328,10 @@ class LabelOcrProvider(CaptureProvider):
         total_ocr_ms = round(sum(float(result.get("elapsed_ms") or 0) for result in results), 3)
         selection_candidates = list(results)
         if len(results) > 1:
-            # The enhanced and source variants often recognize complementary
-            # label rows. Identical values remain deterministic; conflicting
-            # values are rejected by the parser as ambiguous.
+            # The variants often recognize complementary label rows. Identical
+            # values remain deterministic; conflicting values are rejected by
+            # the parser as ambiguous.
             combined_text = "\n".join(str(result.get("raw_text") or "") for result in results)
-            combined_parser_text, _ = normalize_ocr_text_for_parser(combined_text)
-            combined_parsed = parse_nutrition_label_text(combined_parser_text)
             confidences = [float(result["confidence"]) for result in results if result.get("confidence") is not None]
             medians = [float(result["median_confidence"]) for result in results if result.get("median_confidence") is not None]
             selection_candidates.append(
@@ -317,7 +344,7 @@ class LabelOcrProvider(CaptureProvider):
                     "variant": "combined_variants",
                     "width": max(int(result.get("width") or 0) for result in results),
                     "height": max(int(result.get("height") or 0) for result in results),
-                    "field_count": _known_nutrition_count(combined_parsed),
+                    "field_count": _combined_field_count(results),
                 }
             )
 
@@ -359,6 +386,8 @@ class LabelOcrProvider(CaptureProvider):
             "preprocessing_resized": preprocessed.resized,
             "variant_metrics": variant_metrics,
             "variant_failure_count": len(failures),
+            "skipped_variants": skipped_variants,
+            "ruled_line_ratio": preprocessed.ruled_line_ratio,
         }
 
     def capture(self, request: CaptureRequest) -> CaptureObservation:
@@ -433,6 +462,8 @@ class LabelOcrProvider(CaptureProvider):
             "preprocessing_resized": extracted.get("preprocessing_resized"),
             "variant_metrics": deepcopy(extracted.get("variant_metrics") or []),
             "variant_failure_count": extracted.get("variant_failure_count"),
+            "skipped_variants": deepcopy(extracted.get("skipped_variants") or []),
+            "ruled_line_ratio": extracted.get("ruled_line_ratio"),
             "selected_ocr_ms": extracted.get("selected_ocr_ms"),
             "engine": identity["engine"],
             "engine_version": identity["engine_version"],

@@ -25,6 +25,21 @@ Date: 2026-08-25
 
 The local label is generated test media, not a photographed commercial package. Real-label accuracy is not claimed by local validation.
 
+## Real-Label Failure Follow-up (2026-10-12)
+
+iPhone Cloud testing produced 0/4 fields for both native camera and photo-library images. Local reproduction with real Tesseract showed the cause: a clean, boxed Japanese label rendered at 40px produced only `ee` as OCR text under PSM 6, while the same label without table rules produced 3/4. Earlier tests passed because they fed parser-ready text to a fake engine.
+
+Fix: preprocessing v1.2 `ruled_lines_removed` variant, adaptive `source_rgb` fallback, Parser v1.3 glued-unit/lowercase-letter/damaged-label handling, and capture guidance to fill the frame with the nutrition box.
+
+Synthetic photographed-label benchmark (real Tesseract 5.5.2, 4 labels x 4 Japanese fonts x 6 conditions = 96 images; not committed):
+
+| | Fields correct / 384 | All 4 correct / 96 | Wrong values | Close-up crop |
+| --- | ---: | ---: | ---: | ---: |
+| PR16.2 before (v1.1 / parser 1.2) | 112 | 6 | 5 | 0/64 |
+| After (v1.2 / parser 1.3) | 301 | 36 | 10 (all review-required) | 59/64 |
+
+Synthetic results do not replace the real-product Cloud Acceptance below.
+
 ## Cloud Acceptance
 
 Status: **PARTIAL - NOT MERGE-READY**

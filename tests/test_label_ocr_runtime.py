@@ -112,10 +112,12 @@ class ImagePreprocessingTests(unittest.TestCase):
         result = preprocess_label_image(image_fixture(low_contrast=True, rotated=True))
         self.assertEqual(result.primary.mode, "L")
         self.assertEqual(result.fallback.mode, "RGB")
+        self.assertEqual(result.line_removed.mode, "L")
+        self.assertEqual(result.line_removed.size, result.primary.size)
         self.assertGreater(result.width, 0)
         self.assertGreater(result.height, 0)
         self.assertEqual(result.source_format, "PNG")
-        self.assertEqual(IMAGE_PREPROCESSING_VERSION, "1.1")
+        self.assertEqual(IMAGE_PREPROCESSING_VERSION, "1.2")
         self.assertGreaterEqual(result.elapsed_ms, 0)
 
     def test_low_resolution_input_is_upscaled_without_resizing_source_variant(self) -> None:
@@ -227,7 +229,7 @@ class LabelOcrProviderTests(unittest.TestCase):
         self.assertEqual(engine.calls, 2)
         self.assertTrue(provider.last_metrics["cache_hit"])
 
-    def test_source_and_enhanced_variants_choose_higher_confidence_when_equally_complete(self) -> None:
+    def test_equally_complete_variants_choose_higher_confidence_and_skip_source(self) -> None:
         text = CASES["standard_vertical"]["text"]
         engine = SequencedImageOcrEngine(
             [
@@ -237,21 +239,29 @@ class LabelOcrProviderTests(unittest.TestCase):
         )
         provider = LabelOcrProvider(engine, cache=OcrRuntimeCache())
         provider.capture(CaptureRequest(image_fixture()))
-        self.assertEqual(provider.last_metrics["variant"], "source_rgb")
+        self.assertEqual(provider.last_metrics["variant"], "enhanced_grayscale")
         self.assertEqual(provider.last_metrics["candidate_fields"], 4)
-        self.assertEqual(len(provider.last_metrics["variant_metrics"]), 2)
+        self.assertEqual(
+            [item["variant"] for item in provider.last_metrics["variant_metrics"]],
+            ["ruled_lines_removed", "enhanced_grayscale"],
+        )
+        self.assertEqual(provider.last_metrics["skipped_variants"], ["source_rgb"])
+        self.assertEqual(engine.calls, 2)
 
-    def test_more_complete_variant_wins_over_higher_confidence_partial_result(self) -> None:
+    def test_source_variant_runs_only_when_core_fields_are_missing(self) -> None:
         engine = SequencedImageOcrEngine(
             [
                 {"text": CASES["partial_fields"]["text"], "confidence": 0.98},
+                {"text": CASES["partial_fields"]["text"], "confidence": 0.97},
                 {"text": CASES["standard_vertical"]["text"], "confidence": 0.72},
             ]
         )
         provider = LabelOcrProvider(engine, cache=OcrRuntimeCache())
         provider.capture(CaptureRequest(image_fixture()))
+        self.assertEqual(engine.calls, 3)
         self.assertEqual(provider.last_metrics["variant"], "source_rgb")
         self.assertEqual(provider.last_metrics["candidate_fields"], 4)
+        self.assertEqual(provider.last_metrics["skipped_variants"], [])
 
     def test_complementary_variants_are_combined_without_guessing(self) -> None:
         engine = SequencedImageOcrEngine(

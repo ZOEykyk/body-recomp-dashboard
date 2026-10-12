@@ -73,7 +73,11 @@ def main() -> None:
     json_values = [json.loads(item.value) for item in app.get("json")]
     debug_payload = next(item for item in json_values if isinstance(item, dict) and "ocr_runtime" in item)
     ocr_runtime = debug_payload["ocr_runtime"]
-    check(ocr_runtime.get("python_version", "").startswith("3.12."), "Python 3.12 runtime is observable")
+    expected_python = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+    check(
+        ocr_runtime.get("python_version", "").startswith(f"{expected_python}."),
+        f"Python {expected_python} runtime (.python-version) is observable",
+    )
     check(ocr_runtime.get("streamlit_version") == "1.59.0", "pinned Streamlit runtime is observable")
     check("tesseract_executable_detected" in ocr_runtime, "Tesseract detection is observable")
     check("available_languages" in ocr_runtime, "OCR languages are observable")

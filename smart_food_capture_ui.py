@@ -416,6 +416,8 @@ def _render_ocr_image_diagnostics(metrics: dict[str, Any]) -> None:
                 "ocr": {
                     "selected_variant": metrics.get("variant"),
                     "variant_metrics": metrics.get("variant_metrics") or [],
+                    "skipped_variants": metrics.get("skipped_variants") or [],
+                    "ruled_line_ratio": metrics.get("ruled_line_ratio"),
                     "candidate_fields": metrics.get("candidate_fields"),
                     "total_ocr_ms": metrics.get("ocr_ms"),
                     "cache_hit": metrics.get("cache_hit"),
@@ -464,7 +466,7 @@ def _render_label_capture(
             key="label-ocr-input-method",
         )
         if input_method == "高画質で撮影・写真から選択（推奨）":
-            st.info("スマートフォンでは「ファイルを選択」からカメラ撮影または写真を選べます。ラベルの文字が鮮明な画像を使用してください。")
+            st.info("スマートフォンでは「ファイルを選択」からカメラ撮影または写真を選べます。栄養成分表示の枠が画面いっぱいになるよう近づいて撮影するか、写真アプリで枠だけにトリミングしてから選ぶと読み取り精度が上がります。")
             selected_image = st.file_uploader(
                 "高画質の栄養ラベル画像",
                 type=["image/jpeg", "image/png"],

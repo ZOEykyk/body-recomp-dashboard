@@ -6,8 +6,9 @@ from typing import Any
 import unicodedata
 
 
-NUTRITION_LABEL_PARSER_VERSION = "1.2"
+NUTRITION_LABEL_PARSER_VERSION = "1.3"
 NUMBER_TOKEN = r"[-+]?[0-9OoIl|.,]+"
+GLUED_GRAM_UNIT = re.compile(r"\d+\.\d[0-9]")
 LABEL_GAP = r"[\s:：=＝・･·.．,_＿\-‐‑–—/／|｜]*"
 
 
@@ -24,10 +25,14 @@ def _label_aliases(*values: str) -> str:
 
 
 ENERGY_LABEL_PATTERN = _label_aliases("エネルギー", "熱量", "カロリー", "energy", "calorie", "calories")
+# Single-letter P/F/C shorthands are matched case-sensitively: lowercase `p`/`f`/`c`
+# fragments are common in noisy OCR of package art and must not become evidence.
+# The trailing damaged forms (`ぱく質`, `水化物`, ...) are Tesseract misreads of the
+# leading kana/kanji observed on real-label-like photos; they stay review-required.
 FIELD_LABELS = {
-    "protein_g": rf"(?:{_label_aliases('たんぱく質', 'タンパク質', '蛋白質', 'protein')}|(?<![A-Za-z])P(?![A-Za-z]))",
-    "fat_g": rf"(?:{_label_aliases('脂質', '脂肪', 'fat')}|(?<![A-Za-z])F(?![A-Za-z]))",
-    "carbs_g": rf"(?:{_label_aliases('炭水化物', 'carbohydrate', 'carbohydrates', 'carb', 'carbs')}|(?<![A-Za-z])C(?![A-Za-z]))",
+    "protein_g": rf"(?:{_label_aliases('たんぱく質', 'タンパク質', '蛋白質', 'protein', 'ぱく質', 'ばく質', 'パク質', 'バク質')}|(?<![A-Za-z])(?-i:P)(?![A-Za-z]))",
+    "fat_g": rf"(?:{_label_aliases('脂質', '脂肪', 'fat')}|(?<![A-Za-z])(?-i:F)(?![A-Za-z]))",
+    "carbs_g": rf"(?:{_label_aliases('炭水化物', 'carbohydrate', 'carbohydrates', 'carb', 'carbs', '水化物', '炭水化')}|(?<![A-Za-z])(?-i:C)(?![A-Za-z]))",
     "sugar_candidate_g": _label_aliases("糖質"),
 }
 ALL_FIELD_LABELS = "(?:" + "|".join(FIELD_LABELS.values()) + ")"
@@ -237,10 +242,24 @@ def parse_nutrition_label_text(text: str) -> dict[str, Any]:
         for match in re.finditer(pattern, normalized, flags=re.IGNORECASE):
             raw_value = match.group("value")
             target_field = "carbs_g" if field == "sugar_candidate_g" else field
-            value, number_warnings = _parse_number(raw_value, target_field)
+            detected_unit = match.group("trailing_unit") or match.group("header_unit")
+            number_text = raw_value
+            if detected_unit is None and GLUED_GRAM_UNIT.fullmatch(unicodedata.normalize("NFKC", raw_value)):
+                # `4.5g` is often read as `4.59`/`4.58`: the gram unit became a digit
+                # glued to a one-decimal value. Labels print P/F/C with at most one
+                # decimal, so drop the glued digit and require review.
+                number_text = unicodedata.normalize("NFKC", raw_value)[:-1]
+                detected_unit = "glued"
+                warnings.append(
+                    _warning(
+                        "ocr_glued_unit_digit",
+                        f"A digit glued after {number_text!r} was treated as an OCR-damaged gram unit and requires confirmation.",
+                        target_field,
+                    )
+                )
+            value, number_warnings = _parse_number(number_text, target_field)
             warnings.extend(number_warnings)
             entries.append(_evidence(match, raw_value, value, "g"))
-            detected_unit = match.group("trailing_unit") or match.group("header_unit")
             if detected_unit in {"q", "9"}:
                 warnings.append(
                     _warning(
