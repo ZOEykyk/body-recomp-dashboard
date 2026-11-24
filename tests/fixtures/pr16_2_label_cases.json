@@ -1,0 +1,107 @@
+{
+  "standard_vertical": {
+    "text": "栄養成分表示\n1個あたり\n熱量 120kcal\nたんぱく質 3.2g\n脂質 1.5g\n炭水化物 20.1g",
+    "basis": "per_item",
+    "known_fields": 4
+  },
+  "all_pfc": {
+    "text": "エネルギー 223kcal P 12g F 15g C 14g 1袋あたり",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "per_package": {
+    "text": "栄養成分表示 1包装当たり カロリー 180kcal タンパク質 10g 脂質 2g 炭水化物 30g",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "per_100g": {
+    "text": "栄養成分表示 100gあたり 熱量 250kcal たんぱく質 10g 脂質 8g 炭水化物 34g",
+    "basis": "per_100g",
+    "known_fields": 4
+  },
+  "per_100ml": {
+    "text": "栄養成分表示 100ml当たり エネルギー 42kcal たんぱく質 1.2g 脂質 0g 炭水化物 9.3g",
+    "basis": "per_100ml",
+    "known_fields": 4
+  },
+  "content_amount": {
+    "text": "内容量 180g 栄養成分表示 1袋あたり 熱量 300kcal たんぱく質 12g 脂質 5g 炭水化物 50g",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "kcal_and_kj": {
+    "text": "1食あたり エネルギー 100kcal / 418.4kJ たんぱく質 2g 脂質 3g 炭水化物 4g",
+    "basis": "per_serving",
+    "known_fields": 4
+  },
+  "partial_fields": {
+    "text": "1個あたり 熱量 80kcal たんぱく質 1g",
+    "basis": "per_item",
+    "known_fields": 2
+  },
+  "sugar_listed": {
+    "text": "1個あたり 熱量 80kcal たんぱく質 1g 脂質 0g 糖質 18g",
+    "basis": "per_item",
+    "known_fields": 4
+  },
+  "low_contrast": {
+    "text": "100gあたり 熱量 150kcal たんぱく質 5g 脂質 2g 炭水化物 27g",
+    "basis": "per_100g",
+    "known_fields": 4
+  },
+  "slightly_rotated": {
+    "text": "1包装あたり 熱量 118kcal たんぱく質 15g 脂質 0g 炭水化物 14g",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "noisy_label": {
+    "text": "名称 ヨーグルト 原材料名 乳製品 保存方法 要冷蔵 販売者 BodyOS お問い合わせ 0120 栄養成分表示 1個あたり エネルギー 99kcal たんぱく質 3g 脂質 0.5g 炭水化物 13g 賞味期限 枠外記載",
+    "basis": "per_item",
+    "known_fields": 4
+  },
+  "hosted_ocr_g_as_nine": {
+    "text": "栄養成分表示 1袋あたり エネルギー 196kcal たんぱく質 4.2 9 脂質 7.1 9 炭水化物 28.6 9",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "hosted_ocr_g_as_q": {
+    "text": "栄養成分表示 1個あたり 熱量 154kcal タンパク質 3.8q 脂質 2.1q 炭水化物 29.4q",
+    "basis": "per_item",
+    "known_fields": 4
+  },
+  "hosted_table_header_units": {
+    "text": "栄養成分表示 100g当たり エネルギー 242kcal たんぱく質(g) 8.4 脂質(g) 9.2 炭水化物(g) 31.0",
+    "basis": "per_100g",
+    "known_fields": 4
+  },
+  "hosted_units_dropped": {
+    "text": "栄養成分表示 1包装あたり カロリー 118kcal たんぱく質 15.0\n脂質 0.0\n炭水化物 14.0",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "hosted_kanji_protein": {
+    "text": "栄養成分表示 100mlあたり 熱量 67kcal 蛋白質 3.4g 脂質 1.1g 炭水化物 10.8g 糖質 9.7g",
+    "basis": "per_100ml",
+    "known_fields": 4
+  },
+  "hosted_japanese_label_variants": {
+    "text": "栄養成分表示 1袋あたり エ ネ ル ギ ー 196kcal 蛋 白 質 4.2g 脂・肪 7.1g 炭 水 化 物 28.6g",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "hosted_english_label_variants": {
+    "text": "Nutrition Facts 1包装あたり Calories 154kcal protein 3.8g fat 2.1g carbohydrates 29.4g",
+    "basis": "per_package",
+    "known_fields": 4
+  },
+  "hosted_english_abbreviations": {
+    "text": "1個あたり kcal 118kcal P 15.0g F 0.0g C 14.0g",
+    "basis": "per_item",
+    "known_fields": 4
+  },
+  "hosted_sugar_fallback": {
+    "text": "栄養成分表示 1個あたり 熱量 99kcal タンパク質 3g 脂質 0.5g 糖質 13g",
+    "basis": "per_item",
+    "known_fields": 4
+  }
+}

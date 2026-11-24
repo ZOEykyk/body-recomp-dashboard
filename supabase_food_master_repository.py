@@ -8,7 +8,7 @@ from urllib import error, parse, request
 
 from food_aliases import normalize_food_name
 from food_master_models import normalized_identity_key, utc_now
-from food_master_repository import FoodMasterRepository
+from food_master_repository import FoodMasterRepository, FoodMasterRepositoryError
 from performance_instrumentation import instrument
 
 
@@ -45,7 +45,7 @@ ENCOUNTER_COLUMNS = {
 }
 
 
-class SupabaseRepositoryError(RuntimeError):
+class SupabaseRepositoryError(FoodMasterRepositoryError):
     """Controlled storage error that never contains credentials."""
 
 
@@ -344,7 +344,15 @@ class SupabaseFoodMasterRepository(FoodMasterRepository):
             self._mark_write()
             value = result[0] if isinstance(result, list) and result else result
             stored = (value or {}).get("food") or food
-            return self.get_food(user_id, str(stored.get("food_id") or food.get("food_id"))) or deepcopy(food)
+            try:
+                hydrated = self.get_food(user_id, str(stored.get("food_id") or food.get("food_id")))
+            except SupabaseRepositoryError:
+                # The atomic RPC already committed. A transient verification read
+                # must not turn a successful write into a failed confirmation.
+                committed = deepcopy(food)
+                committed.update(deepcopy(stored))
+                return committed
+            return hydrated or deepcopy(food)
         except Exception as exc:
             self._mark_error(exc)
             raise

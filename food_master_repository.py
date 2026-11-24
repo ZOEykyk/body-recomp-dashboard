@@ -13,6 +13,10 @@ from food_master_models import FOOD_MASTER_VERSION, utc_now
 from performance_instrumentation import instrument
 
 
+class FoodMasterRepositoryError(RuntimeError):
+    """Controlled repository failure safe to handle at the UI boundary."""
+
+
 class FoodMasterRepository(ABC):
     """Persistence boundary for personal food knowledge.
 
