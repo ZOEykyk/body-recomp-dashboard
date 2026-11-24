@@ -92,6 +92,47 @@ class RuledLineRemovalTests(unittest.TestCase):
         self.assertEqual(cleaned.getpixel((130, 100)), 0)
         self.assertEqual(cleaned.getpixel((300, 120)), 0)
 
+    def test_long_character_stroke_survives_on_tightly_cropped_image(self) -> None:
+        # A large `ー` is ~10% of a tightly cropped label's width; table rules span most of it.
+        for size in (600, 1200, 2400):
+            image = Image.new("L", (size, size), 255)
+            draw = ImageDraw.Draw(image)
+            stroke = size // 10
+            draw.line((size // 6, size // 2, size // 6 + stroke, size // 2), fill=0, width=max(2, size // 100))
+            draw.line((size // 2, size // 3, size // 2, size // 3 + stroke), fill=0, width=max(2, size // 100))
+            cleaned, _ = remove_ruled_lines(image)
+            self.assertEqual(cleaned.getpixel((size // 6 + stroke // 2, size // 2)), 0, msg=f"horizontal size={size}")
+            self.assertEqual(cleaned.getpixel((size // 2, size // 3 + stroke // 2)), 0, msg=f"vertical size={size}")
+
+    def test_rule_mask_does_not_wrap_to_opposite_edge(self) -> None:
+        image = Image.new("L", (400, 300), 255)
+        draw = ImageDraw.Draw(image)
+        draw.line((0, 0, 0, 299), fill=0, width=3)
+        draw.line((0, 0, 399, 0), fill=0, width=3)
+        image.putpixel((399, 150), 0)
+        image.putpixel((200, 299), 0)
+        cleaned, _ = remove_ruled_lines(image)
+        self.assertEqual(cleaned.getpixel((1, 150)), 255)
+        self.assertEqual(cleaned.getpixel((399, 150)), 0)
+        self.assertEqual(cleaned.getpixel((200, 299)), 0)
+
+    def test_full_resolution_photo_uses_bounded_temporary_memory(self) -> None:
+        import tracemalloc
+
+        image = Image.new("L", (4032, 3024), 255)
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((1000, 800, 3000, 2200), outline=0, width=8)
+        tracemalloc.start()
+        try:
+            cleaned, ratio = remove_ruled_lines(image)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(cleaned.getpixel((2000, 800)), 255)
+        self.assertGreater(ratio, 0)
+        # numpy allocations are traced; the previous full-resolution search peaked >1GB.
+        self.assertLess(peak, 400 * 1024 * 1024)
+
     def test_uneven_lighting_does_not_blacken_background(self) -> None:
         gradient = Image.linear_gradient("L").resize((800, 400)).point(lambda value: 120 + value // 2)
         cleaned, _ = remove_ruled_lines(gradient)
@@ -115,6 +156,10 @@ class OcrDamagedTextParserTests(unittest.TestCase):
 
     def test_two_decimal_value_with_explicit_unit_is_kept(self) -> None:
         self.assertEqual(self._nutrition("脂質 0.05g")["fat_g"], 0.05)
+        self.assertEqual(self._nutrition("脂質 0.05")["fat_g"], 0.05)
+        self.assertEqual(self._nutrition("脂質 0.09")["fat_g"], 0.09)
+        self.assertEqual(self._nutrition("糖質 0.15")["carbs_g"], 0.15)
+        self.assertEqual(self._nutrition("たんぱく質 3.25")["protein_g"], 3.25)
         self.assertEqual(self._nutrition("たんぱく質(g) 4.59")["protein_g"], 4.59)
 
     def test_lowercase_single_letters_are_not_pfc_labels(self) -> None:

@@ -8,7 +8,9 @@ import unicodedata
 
 NUTRITION_LABEL_PARSER_VERSION = "1.3"
 NUMBER_TOKEN = r"[-+]?[0-9OoIl|.,]+"
-GLUED_GRAM_UNIT = re.compile(r"\d+\.\d[0-9]")
+# Tesseract reads a trailing `g` as `9` or `8`. Values below 0.1 (`0.05`) are kept:
+# they are plausible two-decimal label values, not one-decimal values plus a unit.
+GLUED_GRAM_UNIT = re.compile(r"(?!0\.0)\d+\.\d[89]")
 LABEL_GAP = r"[\s:：=＝・･·.．,_＿\-‐‑–—/／|｜]*"
 
 
@@ -245,7 +247,7 @@ def parse_nutrition_label_text(text: str) -> dict[str, Any]:
             detected_unit = match.group("trailing_unit") or match.group("header_unit")
             number_text = raw_value
             if detected_unit is None and GLUED_GRAM_UNIT.fullmatch(unicodedata.normalize("NFKC", raw_value)):
-                # `4.5g` is often read as `4.59`/`4.58`: the gram unit became a digit
+                # `4.5g` is often read as `4.59`/`4.58`: the gram unit became a 9/8 digit
                 # glued to a one-decimal value. Labels print P/F/C with at most one
                 # decimal, so drop the glued digit and require review.
                 number_text = unicodedata.normalize("NFKC", raw_value)[:-1]

@@ -12,6 +12,7 @@ MAX_IMAGE_PIXELS = 24_000_000
 MIN_OCR_LONG_EDGE = 2200
 MAX_OCR_LONG_EDGE = 4200
 MAX_UPSCALE_FACTOR = 3.0
+RULE_DETECTION_LONG_EDGE = 1400
 
 
 class ImagePreprocessingError(ValueError):
@@ -83,17 +84,27 @@ def _long_runs(dark: Any, length: int, axis: int) -> Any:
         return np.zeros_like(dark)
     pad = [(0, 0), (0, 0)]
     pad[axis] = (1, 0)
-    counts = np.pad(dark.astype(np.int32), pad).cumsum(axis=axis)
+    counts = np.pad(dark.astype(np.int32), pad).cumsum(axis=axis, dtype=np.int32)
     upper = np.take(counts, np.arange(length, size + 1), axis=axis)
     lower = np.take(counts, np.arange(0, size - length + 1), axis=axis)
     window_full = (upper - lower) == length
     # Expand each full window start back over the `length` pixels it covers.
-    starts = np.pad(window_full.astype(np.int32), pad).cumsum(axis=axis)
+    starts = np.pad(window_full.astype(np.int32), pad).cumsum(axis=axis, dtype=np.int32)
     starts_size = starts.shape[axis]
     index = np.arange(1, size + 1)
     hi = np.take(starts, np.minimum(index, starts_size - 1), axis=axis)
     lo = np.take(starts, np.maximum(index - length, 0), axis=axis)
     return (hi - lo) > 0
+
+
+def _dilate_one(mask: Any) -> Any:
+    """Grow a boolean mask by one pixel in each direction without wrapping at edges."""
+    grown = mask.copy()
+    grown[1:, :] |= mask[:-1, :]
+    grown[:-1, :] |= mask[1:, :]
+    grown[:, 1:] |= mask[:, :-1]
+    grown[:, :-1] |= mask[:, 1:]
+    return grown
 
 
 def remove_ruled_lines(gray: Any) -> tuple[Any, float]:
@@ -131,11 +142,24 @@ def remove_ruled_lines(gray: Any) -> tuple[Any, float]:
     threshold = min(max(otsu, 110), 215)
     dark = flattened < threshold
 
-    horizontal = _long_runs(dark, max(40, width // 12), axis=1)
-    vertical = _long_runs(dark, max(40, height // 8, width // 12), axis=0)
-    rules = horizontal | vertical
-    # Rules are often antialiased; widen the mask by one pixel on each side.
-    rules = rules | np.roll(rules, 1, axis=0) | np.roll(rules, -1, axis=0) | np.roll(rules, 1, axis=1) | np.roll(rules, -1, axis=1)
+    # Detect rules on a reduced copy: table rules stay long after reduction, and a
+    # full-resolution run search on a 12MP photo needs >1GB of temporary arrays.
+    factor = max(1, -(-max(width, height) // RULE_DETECTION_LONG_EDGE))
+    if factor > 1:
+        reduced = Image.fromarray(dark.astype(np.uint8) * 255).reduce(factor)
+        detect = np.asarray(reduced) >= 96
+    else:
+        detect = dark
+    # Character strokes (e.g. `ー`, `一`) must stay below these lengths even on a
+    # tightly cropped label, while table rules span most of the table.
+    horizontal = _long_runs(detect, max(40 // factor, width // 8 // factor), axis=1)
+    vertical = _long_runs(detect, max(40 // factor, height // 6 // factor, width // 10 // factor), axis=0)
+    # Rules are often antialiased; widen the mask by one (reduced) pixel per side.
+    rules = _dilate_one(horizontal | vertical)
+    if factor > 1:
+        rules = np.asarray(
+            Image.fromarray(rules.astype(np.uint8) * 255).resize((width, height), Image.Resampling.NEAREST)
+        ) > 0
     cleaned = np.where(dark & ~rules, 0, 255).astype(np.uint8)
     ratio = float(rules.mean())
     return Image.fromarray(cleaned), round(ratio, 5)
